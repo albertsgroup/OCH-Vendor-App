@@ -97,6 +97,24 @@ export interface ComparisonRow {
   lowest_vendor_name: string
 }
 
+// ---- AI cross-vendor matching (View 2) ----
+
+export interface MatchVendorItem {
+  rowId: string
+  vendorId: string
+  vendorName: string
+  itemName: string
+  vendorItemNumber: string | null
+  unitSize: string | null
+  price: number
+}
+
+export interface MatchGroup {
+  commonName: string
+  isMatched: boolean        // true = 2+ vendors carry this item
+  vendorItems: MatchVendorItem[]
+}
+
 /** Aggregated vendor info for both views */
 export interface VendorSummary {
   vendor_id: string

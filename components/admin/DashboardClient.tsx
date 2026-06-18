@@ -220,6 +220,7 @@ export default function DashboardClient({
         <ViewComparison
           rows={comparisonRows}
           vendors={vendors}
+          selectedWeek={selectedWeek}
         />
       )}
     </div>
