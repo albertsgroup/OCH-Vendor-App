@@ -59,12 +59,14 @@ interface Props {
   rows: ComparisonRow[]
   vendors: VendorSummary[]
   selectedWeek: string
+  matchGroups: MatchGroup[] | null
+  onMatchComplete: (groups: MatchGroup[]) => void
+  onClearMatch: () => void
 }
 
 type Mode = 'all' | 'savings' | 'missing'
 
-export default function ViewComparison({ rows, vendors, selectedWeek }: Props) {
-  const [matchGroups, setMatchGroups] = useState<MatchGroup[] | null>(null)
+export default function ViewComparison({ rows, vendors, selectedWeek, matchGroups, onMatchComplete, onClearMatch }: Props) {
   const [matching, setMatching] = useState(false)
   const [matchError, setMatchError] = useState<string | null>(null)
 
@@ -85,7 +87,7 @@ export default function ViewComparison({ rows, vendors, selectedWeek }: Props) {
         throw new Error(err.error ?? `HTTP ${res.status}`)
       }
       const data = await res.json()
-      setMatchGroups(data.groups ?? [])
+      onMatchComplete(data.groups ?? [])
     } catch (e) {
       setMatchError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
@@ -123,7 +125,7 @@ export default function ViewComparison({ rows, vendors, selectedWeek }: Props) {
       search={aiSearch}
       onSearchChange={setAiSearch}
       onRerun={runAIMatch}
-      onClear={() => setMatchGroups(null)}
+      onClear={onClearMatch}
     />
   }
 

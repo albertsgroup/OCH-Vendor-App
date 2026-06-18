@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCurrentWeekStart, getPreviousWeeks, formatWeekRange } from '@/lib/utils/week'
 import DashboardClient from '@/components/admin/DashboardClient'
-import type { GroupedRow, ComparisonRow, VendorSummary } from '@/types/database'
+import type { GroupedRow, VendorSummary } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,13 +27,6 @@ export default async function AdminDashboard({
     .eq('is_active', true)
     .order('vendor_name')
 
-  // Fetch all internal items (for mapping reference)
-  const { data: internalItems } = await admin
-    .from('items')
-    .select('id, item_number, item_name, is_active, created_at')
-    .eq('is_active', true)
-    .order('item_number')
-
   // Fetch all uploads for the selected week
   const { data: uploads } = await admin
     .from('vendor_uploads')
@@ -49,16 +42,10 @@ export default async function AdminDashboard({
   const { data: uploadRows } = uploadIds.length > 0
     ? await admin
         .from('vendor_upload_rows')
-        .select('*')
+        .select('id, upload_id, vendor_item_number, item_name, unit_size, price')
         .in('upload_id', uploadIds)
         .order('sort_order')
     : { data: [] }
-
-  // Build internal item lookup maps
-  const internalItemById: Record<string, { item_number: string; item_name: string }> = {}
-  internalItems?.forEach(item => {
-    internalItemById[item.id] = { item_number: item.item_number, item_name: item.item_name }
-  })
 
   // Map: upload_id → vendor_id
   const vendorByUpload: Record<string, string> = {}
@@ -88,7 +75,6 @@ export default async function AdminDashboard({
   // ---- Build GroupedRow list (View 1) ----
   const groupedRows: GroupedRow[] = (uploadRows ?? []).map(row => {
     const vendorId = vendorByUpload[row.upload_id]
-    const internal = row.internal_item_id ? internalItemById[row.internal_item_id] : null
 
     return {
       id: row.id,
@@ -98,58 +84,17 @@ export default async function AdminDashboard({
       item_name: row.item_name,
       unit_size: (row as { unit_size?: string | null }).unit_size ?? null,
       price: Number(row.price),
-      internal_item_id: row.internal_item_id,
-      internal_item_number: internal?.item_number ?? null,
-      internal_item_name: internal?.item_name ?? null,
+      internal_item_id: null,
+      internal_item_number: null,
+      internal_item_name: null,
     }
   })
-
-  // ---- Build ComparisonRow list (View 2) ----
-  // Only rows that are matched to an internal item
-  const matchedRows = groupedRows.filter(r => r.internal_item_id !== null)
-
-  // Group by internal_item_id
-  const byInternalItem: Record<string, GroupedRow[]> = {}
-  matchedRows.forEach(row => {
-    const key = row.internal_item_id!
-    if (!byInternalItem[key]) byInternalItem[key] = []
-    byInternalItem[key].push(row)
-  })
-
-  const vendorIds = (vendorProfiles ?? []).map(v => v.id)
-
-  const comparisonRows: ComparisonRow[] = Object.entries(byInternalItem).map(([itemId, rows]) => {
-    const internal = internalItemById[itemId]
-
-    // Build price map per vendor
-    const prices: Record<string, number | null> = {}
-    vendorIds.forEach(id => { prices[id] = null })
-    rows.forEach(row => {
-      prices[row.vendor_id] = row.price
-    })
-
-    // Find lowest price
-    const vendorPrices = rows.map(r => ({ vendor_id: r.vendor_id, price: r.price }))
-    const sorted = [...vendorPrices].sort((a, b) => a.price - b.price)
-    const lowest = sorted[0]
-
-    return {
-      internal_item_id: itemId,
-      internal_item_number: internal?.item_number ?? '—',
-      internal_item_name: internal?.item_name ?? '—',
-      prices,
-      lowest_price: lowest?.price ?? 0,
-      lowest_vendor_id: lowest?.vendor_id ?? '',
-      lowest_vendor_name: lowest ? (vendorNameById[lowest.vendor_id] ?? '—') : '—',
-    }
-  }).sort((a, b) => a.internal_item_number.localeCompare(b.internal_item_number))
 
   return (
     <DashboardClient
       groupedRows={groupedRows}
-      comparisonRows={comparisonRows}
+      comparisonRows={[]}
       vendors={vendors}
-      internalItems={internalItems ?? []}
       availableWeeks={availableWeeks}
       selectedWeek={selectedWeek}
       currentWeek={currentWeek}

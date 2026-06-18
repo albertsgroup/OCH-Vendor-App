@@ -115,6 +115,19 @@ export interface MatchGroup {
   vendorItems: MatchVendorItem[]
 }
 
+// ---- Cart ----
+
+export interface CartItem {
+  rowId: string
+  vendorId: string
+  vendorName: string
+  vendorItemNumber: string | null
+  itemName: string
+  unitSize: string | null
+  price: number
+  quantity: number
+}
+
 /** Aggregated vendor info for both views */
 export interface VendorSummary {
   vendor_id: string

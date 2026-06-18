@@ -1,4 +1,4 @@
-import type { GroupedRow, ComparisonRow, VendorSummary } from '@/types/database'
+import type { GroupedRow, ComparisonRow, VendorSummary, CartItem } from '@/types/database'
 import { formatWeekRange } from '@/lib/utils/week'
 
 const BRAND_COLOR: [number, number, number] = [62, 75, 84]   // #3e4b54 primary
@@ -206,4 +206,78 @@ export async function exportComparisonPDF(rows: ComparisonRow[], vendors: Vendor
 
   addFooter(doc)
   doc.save(`OCH-Comparison-${weekStart}.pdf`)
+}
+
+// -------------------------------------------------------
+// Cart
+// -------------------------------------------------------
+export async function exportCartPDF(items: CartItem[], weekStart: string) {
+  const jsPDF = (await import('jspdf')).default
+  const autoTable = (await import('jspdf-autotable')).default
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
+  const weekLabel = formatWeekRange(weekStart)
+  let currentY = addHeader(doc, weekLabel, 'Purchase Cart')
+
+  const vendors = [...new Set(items.map(i => i.vendorId))]
+  const vendorNames: Record<string, string> = {}
+  items.forEach(i => { vendorNames[i.vendorId] = i.vendorName })
+
+  let grandTotal = 0
+
+  for (let vi = 0; vi < vendors.length; vi++) {
+    const vendorId = vendors[vi]
+    const vendorItems = items.filter(i => i.vendorId === vendorId)
+    const vendorTotal = vendorItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    grandTotal += vendorTotal
+
+    if (vi > 0) currentY += 6
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...BRAND_COLOR)
+    doc.text(vendorNames[vendorId], 14, currentY)
+    doc.setTextColor(0)
+    currentY += 5
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['Vendor Item #', 'Item Name', 'Unit Size', 'Case Price', 'Qty', 'Line Total']],
+      body: [
+        ...vendorItems.map(item => [
+          item.vendorItemNumber ?? '—',
+          item.itemName,
+          item.unitSize ?? '—',
+          `$${item.price.toFixed(2)}`,
+          String(item.quantity),
+          `$${(item.price * item.quantity).toFixed(2)}`,
+        ]),
+        [
+          '', '', '', '',
+          { content: 'Subtotal', styles: { fontStyle: 'bold' as const } },
+          { content: `$${vendorTotal.toFixed(2)}`, styles: { fontStyle: 'bold' as const, halign: 'right' as const, textColor: BRAND_COLOR } },
+        ],
+      ],
+      headStyles: { fillColor: BRAND_COLOR, textColor: 255 as unknown as [number, number, number], fontStyle: 'bold', fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        3: { halign: 'right', cellWidth: 22 },
+        4: { halign: 'center', cellWidth: 14 },
+        5: { halign: 'right', cellWidth: 26 },
+      },
+      margin: { left: 14, right: 14 },
+    })
+
+    currentY = getLastY(doc) + 4
+  }
+
+  // Grand total row
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...BRAND_COLOR)
+  doc.text(`Grand Total: $${grandTotal.toFixed(2)}`, 14, currentY + 4)
+
+  addFooter(doc)
+  doc.save(`OCH-Cart-${weekStart}.pdf`)
 }

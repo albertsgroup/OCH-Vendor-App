@@ -1,4 +1,4 @@
-import type { GroupedRow, ComparisonRow, VendorSummary } from '@/types/database'
+import type { GroupedRow, ComparisonRow, VendorSummary, CartItem } from '@/types/database'
 import { formatWeekRange } from '@/lib/utils/week'
 
 function downloadCSV(content: string, filename: string) {
@@ -118,4 +118,51 @@ export function exportComparisonCSV(rows: ComparisonRow[], vendors: VendorSummar
   ))
 
   downloadCSV(lines.join('\r\n'), `OCH-Comparison-${weekStart}.csv`)
+}
+
+// -------------------------------------------------------
+// Cart
+// -------------------------------------------------------
+export function exportCartCSV(items: CartItem[], weekStart: string) {
+  const weekLabel = formatWeekRange(weekStart)
+  const lines: string[] = []
+
+  lines.push(row('Old City Hall BBQ — Purchase Cart'))
+  lines.push(row(`Week of ${weekLabel}`))
+  lines.push(row(`Generated: ${new Date().toLocaleString()}`))
+  lines.push('')
+
+  // Group by vendor
+  const vendors = [...new Set(items.map(i => i.vendorId))]
+  const vendorNames: Record<string, string> = {}
+  items.forEach(i => { vendorNames[i.vendorId] = i.vendorName })
+
+  let grandTotal = 0
+
+  for (const vendorId of vendors) {
+    const vendorItems = items.filter(i => i.vendorId === vendorId)
+    const vendorTotal = vendorItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    grandTotal += vendorTotal
+
+    lines.push(row(`VENDOR: ${vendorNames[vendorId]}`))
+    lines.push(row('Vendor Item #', 'Item Name', 'Unit Size', 'Case Price', 'Qty', 'Line Total'))
+
+    for (const item of vendorItems) {
+      lines.push(row(
+        item.vendorItemNumber,
+        item.itemName,
+        item.unitSize,
+        item.price.toFixed(2),
+        item.quantity,
+        (item.price * item.quantity).toFixed(2),
+      ))
+    }
+
+    lines.push(row('', '', '', '', 'SUBTOTAL', vendorTotal.toFixed(2)))
+    lines.push('')
+  }
+
+  lines.push(row('', '', '', '', 'GRAND TOTAL', grandTotal.toFixed(2)))
+
+  downloadCSV(lines.join('\r\n'), `OCH-Cart-${weekStart}.csv`)
 }
