@@ -90,10 +90,10 @@ export default function VendorDashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1 className="text-2xl font-bold font-heading text-primary">
           Welcome{vendorName ? `, ${vendorName}` : ''}
         </h1>
-        <p className="text-gray-500 mt-1">Week of {weekLabel}</p>
+        <p className="text-light-grey-500 mt-1 text-sm">Week of {weekLabel}</p>
       </div>
 
       {/* Upload section */}

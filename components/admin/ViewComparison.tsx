@@ -3,64 +3,68 @@
 import { useState, useMemo } from 'react'
 import type { ComparisonRow, VendorSummary } from '@/types/database'
 
-const B = {
-  bg:        '#150E05',
-  surface:   '#1C1209',
-  surface2:  '#211508',
-  border:    '#3A2208',
-  border2:   '#4A3010',
-  amber:     '#C8841A',
-  amberDim:  '#6B4E27',
-  textBright:'#E8D5A3',
-  textMid:   '#C9A96E',
-  textDim:   '#6B4E27',
-  green:     '#2D5016',
-  greenText: '#97C459',
-  greenBorder:'#639922',
+// OCH brand tokens (inline — not Tailwind, since table cells need dynamic per-cell styles)
+const C = {
+  bg:          '#fdfcfa',
+  surface:     '#ffffff',
+  border:      '#e2ddd7',
+  borderMid:   '#d1cbc1',
+  primary:     '#3e4b54',
+  primaryDim:  '#7f8e98',
+  primaryLight:'#ebeef0',
+  beige:       '#f0ece2',
+  beigeLight:  '#f8f5ef',
+  dark:        '#263139',
+  text:        '#263139',
+  textMid:     '#3e4b54',
+  textMuted:   '#a8b2b9',
+  lowestBg:    '#d1fae5',
+  lowestText:  '#065f46',
+  lowestBorder:'#6ee7b7',
 }
 
 const inputStyle: React.CSSProperties = {
-  background: B.surface,
-  color: B.textBright,
-  border: `1px solid ${B.border2}`,
-  borderRadius: 6,
+  background: C.surface,
+  color: C.text,
+  border: `1px solid ${C.borderMid}`,
+  borderRadius: 8,
   padding: '7px 12px',
-  fontFamily: '"DM Mono", monospace',
-  fontSize: '0.75rem',
-  letterSpacing: '0.04em',
+  fontFamily: 'var(--font-sans)',
+  fontSize: '0.82rem',
   outline: 'none',
 }
 
 const TH: React.CSSProperties = {
-  padding: '10px 12px 6px',
-  fontFamily: '"DM Mono", monospace',
-  fontSize: '0.65rem',
-  letterSpacing: '0.14em',
+  padding: '11px 14px 9px',
+  fontFamily: 'var(--font-sans)',
+  fontSize: '0.68rem',
+  letterSpacing: '0.1em',
   textTransform: 'uppercase',
-  color: B.amber,
-  borderBottom: `1px solid ${B.border}`,
-  background: B.bg,
+  fontWeight: 600,
+  color: '#ffffff',
+  background: C.primary,
   whiteSpace: 'nowrap',
 }
 
 const SUB_TH: React.CSSProperties = {
-  padding: '5px 12px 8px',
-  fontFamily: '"DM Mono", monospace',
-  fontSize: '0.56rem',
-  letterSpacing: '0.16em',
+  padding: '6px 14px 8px',
+  fontFamily: 'var(--font-sans)',
+  fontSize: '0.6rem',
+  letterSpacing: '0.12em',
   textTransform: 'uppercase',
-  color: B.amberDim,
-  borderBottom: `1px solid ${B.border}`,
-  background: B.surface,
+  fontWeight: 500,
+  color: C.primaryDim,
+  background: C.beigeLight,
+  borderBottom: `1px solid ${C.border}`,
   whiteSpace: 'nowrap',
 }
 
 const TD: React.CSSProperties = {
-  padding: '9px 12px',
-  color: B.textMid,
+  padding: '10px 14px',
+  color: C.textMid,
   verticalAlign: 'middle',
-  fontFamily: '"DM Mono", monospace',
-  fontSize: '0.72rem',
+  fontFamily: 'var(--font-sans)',
+  fontSize: '0.82rem',
 }
 
 interface Props {
@@ -145,18 +149,17 @@ export default function ViewComparison({ rows, vendors }: Props) {
   if (rows.length === 0) {
     return (
       <div style={{
-        background: B.surface,
-        border: `1px solid ${B.border}`,
-        borderRadius: 10,
+        background: C.beigeLight,
+        border: `1px solid ${C.border}`,
+        borderRadius: 12,
         padding: '3rem',
         textAlign: 'center',
-        fontFamily: '"DM Mono", monospace',
-        color: B.amberDim,
-        fontSize: '0.75rem',
-        letterSpacing: '0.1em',
+        fontFamily: 'var(--font-sans)',
+        color: C.textMuted,
+        fontSize: '0.82rem',
         lineHeight: 1.8,
       }}>
-        <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem', color: B.border2 }}>⚖</div>
+        <div style={{ fontSize: '2rem', marginBottom: '0.75rem', opacity: 0.3 }}>⚖</div>
         No comparable data yet.
         <br />
         Upload order guides and map vendor items to internal catalogue items to see price comparisons.
@@ -189,13 +192,14 @@ export default function ViewComparison({ rows, vendors }: Props) {
           onClick={exportCSV}
           style={{
             background: 'transparent',
-            border: `1px solid ${B.amber}`,
-            color: B.amber,
-            borderRadius: 6,
+            border: `1px solid ${C.borderMid}`,
+            color: C.textMid,
+            borderRadius: 8,
             padding: '7px 16px',
-            fontFamily: '"DM Mono", monospace',
-            fontSize: '0.68rem',
-            letterSpacing: '0.1em',
+            fontFamily: 'var(--font-sans)',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            letterSpacing: '0.06em',
             textTransform: 'uppercase',
             cursor: 'pointer',
             whiteSpace: 'nowrap',
@@ -206,18 +210,37 @@ export default function ViewComparison({ rows, vendors }: Props) {
       </div>
 
       {/* ── Stat cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {[
           { label: 'Items shown',          value: String(filtered.length) },
           { label: 'Avg case savings',     value: stats.avgSave ? `$${stats.avgSave.toFixed(2)}` : '—' },
           { label: 'Total potential save',  value: `$${stats.totalSave.toFixed(2)}` },
           { label: 'Vendors compared',     value: String(vendors.length) },
         ].map(s => (
-          <div key={s.label} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '0.9rem 1rem' }}>
-            <div style={{ fontFamily: '"DM Mono", monospace', fontSize: '0.56rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: B.amberDim, marginBottom: 5 }}>
+          <div key={s.label} style={{
+            background: C.surface,
+            border: `1px solid ${C.border}`,
+            borderRadius: 10,
+            padding: '1rem 1.1rem',
+          }}>
+            <div style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: '0.6rem',
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: C.primaryDim,
+              marginBottom: 6,
+            }}>
               {s.label}
             </div>
-            <div style={{ fontFamily: '"Playfair Display", serif', fontSize: '1.55rem', color: B.amber, lineHeight: 1 }}>
+            <div style={{
+              fontFamily: 'var(--font-heading)',
+              fontSize: '1.65rem',
+              color: C.primary,
+              lineHeight: 1,
+              fontWeight: 700,
+            }}>
               {s.value}
             </div>
           </div>
@@ -225,34 +248,41 @@ export default function ViewComparison({ rows, vendors }: Props) {
       </div>
 
       {/* ── Legend ── */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.25rem', alignItems: 'center', marginBottom: '0.85rem', fontFamily: '"DM Mono", monospace', fontSize: '0.62rem', letterSpacing: '0.08em', color: B.amberDim }}>
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '1.25rem',
+        alignItems: 'center',
+        marginBottom: '0.85rem',
+        fontFamily: 'var(--font-sans)',
+        fontSize: '0.7rem',
+        color: C.textMuted,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 3, background: B.green, border: `1px solid ${B.greenBorder}`, display: 'inline-block' }} />
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: C.lowestBg, border: `1px solid ${C.lowestBorder}`, display: 'inline-block' }} />
           Lowest price
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 3, background: B.surface, border: `1px solid ${B.border}`, display: 'inline-block' }} />
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: C.beigeLight, border: `1px solid ${C.borderMid}`, display: 'inline-block' }} />
           Not carried
         </div>
       </div>
 
       {/* ── Table ── */}
-      <div style={{ overflowX: 'auto', border: `1px solid ${B.border}`, borderRadius: 10 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 + vendors.length * 120 }}>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 1px 3px rgba(38,49,57,0.06)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 + vendors.length * 130 }}>
           <thead>
-
-            {/* ── Group header row ── */}
             <tr>
-              <th style={{ ...TH, width: 100, textAlign: 'left', borderRight: `1px solid ${B.border}` }}>
+              <th style={{ ...TH, width: 110, textAlign: 'left', borderRight: `1px solid rgba(255,255,255,0.12)` }}>
                 Internal #
               </th>
-              <th style={{ ...TH, textAlign: 'left', borderRight: `1px solid ${B.border}` }}>
+              <th style={{ ...TH, textAlign: 'left', borderRight: `1px solid rgba(255,255,255,0.12)` }}>
                 Item
               </th>
               {vendors.map((v, i) => (
                 <th
                   key={v.vendor_id}
-                  style={{ ...TH, textAlign: 'center', width: 120, borderRight: i < vendors.length - 1 ? `1px solid ${B.border}` : undefined }}
+                  style={{ ...TH, textAlign: 'center', width: 130, borderRight: i < vendors.length - 1 ? `1px solid rgba(255,255,255,0.12)` : undefined }}
                 >
                   {v.vendor_name}
                 </th>
@@ -262,28 +292,27 @@ export default function ViewComparison({ rows, vendors }: Props) {
               </th>
             </tr>
 
-            {/* ── Sub-header row ── */}
             <tr>
-              <th style={{ ...SUB_TH, textAlign: 'left', borderRight: `1px solid ${B.border}` }}>OCH code</th>
-              <th style={{ ...SUB_TH, textAlign: 'left', borderRight: `1px solid ${B.border}` }}>Description</th>
+              <th style={{ ...SUB_TH, textAlign: 'left', borderRight: `1px solid ${C.border}` }}>OCH code</th>
+              <th style={{ ...SUB_TH, textAlign: 'left', borderRight: `1px solid ${C.border}` }}>Description</th>
               {vendors.map((v, i) => (
                 <th
                   key={v.vendor_id}
-                  style={{ ...SUB_TH, textAlign: 'center', borderRight: i < vendors.length - 1 ? `1px solid ${B.border}` : undefined }}
+                  style={{ ...SUB_TH, textAlign: 'center', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}
                 >
                   Case $
                 </th>
               ))}
               <th style={{ ...SUB_TH, textAlign: 'center' }}>vs highest</th>
             </tr>
-
           </thead>
+
           <tbody>
             {filtered.length === 0 ? (
               <tr>
                 <td
                   colSpan={3 + vendors.length}
-                  style={{ textAlign: 'center', padding: '3rem', color: B.amberDim, fontFamily: '"DM Mono", monospace', fontSize: '0.73rem', letterSpacing: '0.1em' }}
+                  style={{ textAlign: 'center', padding: '3rem', color: C.textMuted, fontFamily: 'var(--font-sans)', fontSize: '0.82rem' }}
                 >
                   No items match your filters.
                 </td>
@@ -301,18 +330,28 @@ export default function ViewComparison({ rows, vendors }: Props) {
               return (
                 <tr
                   key={r.internal_item_id}
-                  style={{ borderBottom: rowIdx < filtered.length - 1 ? `1px solid #241608` : undefined }}
+                  style={{
+                    borderBottom: rowIdx < filtered.length - 1 ? `1px solid ${C.border}` : undefined,
+                    background: rowIdx % 2 === 0 ? C.surface : C.bg,
+                  }}
                 >
                   {/* OCH # */}
-                  <td style={{ ...TD, borderRight: `1px solid ${B.border}`, whiteSpace: 'nowrap' }}>
-                    <span style={{ color: B.amber, fontFamily: '"DM Mono", monospace', fontWeight: 500, letterSpacing: '0.04em' }}>
+                  <td style={{ ...TD, borderRight: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>
+                    <span style={{ color: C.primary, fontWeight: 600, letterSpacing: '0.04em', fontVariantNumeric: 'tabular-nums' }}>
                       {r.internal_item_number}
                     </span>
                   </td>
 
                   {/* Item name */}
-                  <td style={{ ...TD, borderRight: `1px solid ${B.border}`, maxWidth: 280 }}>
-                    <div style={{ fontFamily: '"Playfair Display", serif', fontSize: '0.85rem', color: B.textBright, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...TD, borderRight: `1px solid ${C.border}`, maxWidth: 280 }}>
+                    <div style={{
+                      fontFamily: 'var(--font-heading)',
+                      fontSize: '0.88rem',
+                      color: C.dark,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
                       {r.internal_item_name}
                     </div>
                   </td>
@@ -324,18 +363,27 @@ export default function ViewComparison({ rows, vendors }: Props) {
                     return (
                       <td
                         key={v.vendor_id}
-                        style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums', borderRight: i < vendors.length - 1 ? `1px solid ${B.border}` : undefined }}
+                        style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}
                       >
                         {price !== null ? (
                           isMin ? (
-                            <span style={{ display: 'inline-block', background: B.green, color: B.greenText, borderRadius: 4, padding: '2px 8px', fontWeight: 500, fontSize: '0.72rem' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              background: C.lowestBg,
+                              color: C.lowestText,
+                              border: `1px solid ${C.lowestBorder}`,
+                              borderRadius: 5,
+                              padding: '2px 9px',
+                              fontWeight: 600,
+                              fontSize: '0.82rem',
+                            }}>
                               ${price.toFixed(2)}
                             </span>
                           ) : (
-                            <span style={{ color: B.textMid }}>${price.toFixed(2)}</span>
+                            <span style={{ color: C.textMid }}>${price.toFixed(2)}</span>
                           )
                         ) : (
-                          <span style={{ color: B.border2 }}>—</span>
+                          <span style={{ color: C.borderMid }}>—</span>
                         )}
                       </td>
                     )
@@ -344,9 +392,9 @@ export default function ViewComparison({ rows, vendors }: Props) {
                   {/* Best save */}
                   <td style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     {saving > 0 ? (
-                      <span style={{ color: B.greenText, fontWeight: 500 }}>${saving.toFixed(2)}</span>
+                      <span style={{ color: '#059669', fontWeight: 600 }}>${saving.toFixed(2)}</span>
                     ) : (
-                      <span style={{ color: B.border2 }}>—</span>
+                      <span style={{ color: C.borderMid }}>—</span>
                     )}
                   </td>
                 </tr>
@@ -356,9 +404,16 @@ export default function ViewComparison({ rows, vendors }: Props) {
         </table>
       </div>
 
-      {/* ── Footer summary ── */}
+      {/* ── Footer ── */}
       {filtered.length > 0 && (
-        <div style={{ marginTop: '0.75rem', fontFamily: '"DM Mono", monospace', fontSize: '0.6rem', letterSpacing: '0.1em', color: B.amberDim, textAlign: 'right' }}>
+        <div style={{
+          marginTop: '0.75rem',
+          fontFamily: 'var(--font-sans)',
+          fontSize: '0.65rem',
+          letterSpacing: '0.06em',
+          color: C.textMuted,
+          textAlign: 'right',
+        }}>
           {filtered.length} item{filtered.length !== 1 ? 's' : ''} · {vendors.length} vendor{vendors.length !== 1 ? 's' : ''}
           {mode !== 'all' ? ` · filtered: ${mode}` : ''}
         </div>

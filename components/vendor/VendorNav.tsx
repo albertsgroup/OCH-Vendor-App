@@ -43,19 +43,25 @@ export default function VendorNav({ vendorName }: Props) {
   ]
 
   return (
-    <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+    <header className="bg-white border-b border-light-grey-200 shadow-sm sticky top-0 z-10">
       <div className="max-w-5xl mx-auto px-4">
         <div className="flex items-center justify-between h-14">
+
           {/* Brand */}
           <div className="flex items-center gap-3">
             <Image
-              src="/och-logo.svg"
-              alt="Old City Hall Brewery"
-              width={80}
-              height={53}
+              src="/och-logo-dark.svg"
+              alt="Old City Hall BBQ"
+              width={36}
+              height={36}
               className="h-8 w-auto"
             />
-            <p className="text-xs text-gray-400 leading-none">{vendorName}</p>
+            <div className="leading-tight">
+              <p className="text-xs font-heading text-primary tracking-wide hidden sm:block">Old City Hall BBQ</p>
+              {vendorName && (
+                <p className="text-[10px] text-light-grey-500 tracking-wide">{vendorName}</p>
+              )}
+            </div>
           </div>
 
           {/* Nav links */}
@@ -67,8 +73,8 @@ export default function VendorNav({ vendorName }: Props) {
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
                   pathname === link.href
-                    ? 'bg-primary-50 text-primary'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                    ? 'bg-secondary text-primary'
+                    : 'text-light-grey-500 hover:text-primary hover:bg-secondary-100'
                 )}
               >
                 {link.icon}
@@ -79,7 +85,7 @@ export default function VendorNav({ vendorName }: Props) {
 
           <button
             onClick={handleLogout}
-            className="text-sm text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1.5"
+            className="text-sm text-light-grey-400 hover:text-primary transition-colors flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />

@@ -75,32 +75,36 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-primary px-4">
+    <div className="min-h-screen flex items-center justify-center bg-och-black px-4">
       <div className="w-full max-w-sm">
 
-        {/* Logo */}
-        <div className="text-center mb-8">
+        {/* Logo + wordmark */}
+        <div className="text-center mb-8 flex flex-col items-center gap-3">
           <Image
-            src="/och-logo.svg"
-            alt="Old City Hall Brewery"
-            width={260}
-            height={172}
-            className="mx-auto brightness-0 invert"
+            src="/och-logo-white.svg"
+            alt="Old City Hall BBQ"
+            width={72}
+            height={72}
+            className="h-18 w-auto"
             priority
           />
+          <div>
+            <p className="font-heading text-secondary text-xl tracking-wide">Old City Hall BBQ</p>
+            <p className="text-light-grey-400 text-xs tracking-widest uppercase mt-0.5">Vendor Pricing Portal</p>
+          </div>
         </div>
 
         {/* Card */}
         <div className="card overflow-hidden">
 
           {/* Tabs */}
-          <div className="grid grid-cols-2 border-b border-gray-200">
+          <div className="grid grid-cols-2 border-b border-light-grey-200">
             <button
               onClick={() => handleTabChange('vendor')}
               className={`py-3 text-sm font-semibold transition-colors ${
                 tab === 'vendor'
                   ? 'bg-white text-primary border-b-2 border-primary'
-                  : 'bg-gray-50 text-gray-500 hover:text-gray-700'
+                  : 'bg-secondary-50 text-light-grey-500 hover:text-primary-400'
               }`}
             >
               Vendor Login
@@ -110,7 +114,7 @@ export default function LoginPage() {
               className={`py-3 text-sm font-semibold transition-colors ${
                 tab === 'admin'
                   ? 'bg-white text-primary border-b-2 border-primary'
-                  : 'bg-gray-50 text-gray-500 hover:text-gray-700'
+                  : 'bg-secondary-50 text-light-grey-500 hover:text-primary-400'
               }`}
             >
               Admin Login
@@ -119,7 +123,7 @@ export default function LoginPage() {
 
           {/* Form */}
           <div className="p-6">
-            <p className="text-xs text-gray-400 mb-5">
+            <p className="text-xs text-light-grey-400 mb-5">
               {tab === 'vendor'
                 ? 'Sign in to submit your weekly pricing.'
                 : 'Brewery staff access only.'}
@@ -167,7 +171,7 @@ export default function LoginPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Signing in...
+                    Signing in…
                   </>
                 ) : tab === 'vendor' ? 'Sign in as Vendor' : 'Sign in as Admin'}
               </button>
@@ -175,7 +179,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-primary-200 mt-6">
+        <p className="text-center text-xs text-light-grey-500 mt-6">
           Old City Hall Brewery &mdash; Vendor Pricing Portal
         </p>
       </div>
