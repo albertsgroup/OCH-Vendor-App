@@ -26,9 +26,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .eq('review_resolved', false)
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-secondary-50">
       <AdminNav pendingReviewCount={pendingCount ?? 0} />
-      {/* Offset for sidebar on desktop, bottom nav on mobile */}
       <main className="md:ml-56 pt-14 pb-20 md:pb-0">
         <div className="max-w-6xl mx-auto px-4 py-8">
           {children}

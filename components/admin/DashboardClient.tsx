@@ -98,8 +98,8 @@ export default function DashboardClient({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Weekly Report</h1>
-          <p className="text-gray-500 mt-1">Week of {weekLabel}</p>
+          <h1 className="text-2xl font-bold text-primary font-heading">Weekly Report</h1>
+          <p className="text-light-grey-500 mt-1 font-sans text-sm">Week of {weekLabel}</p>
         </div>
 
         {/* Week selector */}
@@ -119,17 +119,17 @@ export default function DashboardClient({
       {/* Upload status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="card p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Uploaded</p>
-          <p className="text-3xl font-bold text-green-700 mt-1">{vendorsWithUploads.length}</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-light-grey-500 mb-1">Uploaded</p>
+          <p className="text-3xl font-bold font-heading text-green-700">{vendorsWithUploads.length}</p>
           {vendorsWithUploads.length > 0 && (
-            <p className="text-xs text-gray-400 mt-1">{vendorsWithUploads.map(v => v.vendor_name).join(', ')}</p>
+            <p className="text-xs text-light-grey-400 mt-1">{vendorsWithUploads.map(v => v.vendor_name).join(', ')}</p>
           )}
         </div>
         <div className="card p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Awaiting</p>
-          <p className="text-3xl font-bold text-amber-600 mt-1">{vendorsWithout.length}</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-light-grey-500 mb-1">Awaiting</p>
+          <p className="text-3xl font-bold font-heading text-amber-600">{vendorsWithout.length}</p>
           {vendorsWithout.length > 0 && (
-            <p className="text-xs text-gray-400 mt-1">{vendorsWithout.map(v => v.vendor_name).join(', ')}</p>
+            <p className="text-xs text-light-grey-400 mt-1">{vendorsWithout.map(v => v.vendor_name).join(', ')}</p>
           )}
         </div>
       </div>
@@ -137,23 +137,23 @@ export default function DashboardClient({
       {/* View toggle + export bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Toggle */}
-        <div className="inline-flex rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <div className="inline-flex rounded-lg border border-light-grey-300 bg-white overflow-hidden shadow-sm">
           <button
             onClick={() => setView('grouped')}
             className={`px-4 py-2 text-sm font-semibold transition-colors ${
               view === 'grouped'
                 ? 'bg-primary text-white'
-                : 'text-gray-600 hover:bg-gray-50'
+                : 'text-primary-300 hover:bg-secondary-100'
             }`}
           >
             View 1 — By Vendor
           </button>
           <button
             onClick={() => setView('comparison')}
-            className={`px-4 py-2 text-sm font-semibold transition-colors border-l border-gray-200 ${
+            className={`px-4 py-2 text-sm font-semibold transition-colors border-l border-light-grey-300 ${
               view === 'comparison'
                 ? 'bg-primary text-white'
-                : 'text-gray-600 hover:bg-gray-50'
+                : 'text-primary-300 hover:bg-secondary-100'
             }`}
           >
             View 2 — Price Comparison
