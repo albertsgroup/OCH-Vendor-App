@@ -101,15 +101,14 @@ export async function GET(req: NextRequest) {
   const itemsText = rows
     .map(r => {
       const v = rowById[r.id]
-      const parts = [`ID:${r.id}`, `Vendor:${v.vendorName}`, `#${v.vendorItemNumber ?? 'N/A'}`, `"${v.itemName}"`]
+      const parts = [`ID:${r.id}`, `"${v.itemName}"`]
       if (v.unitSize) parts.push(v.unitSize)
-      parts.push(`$${v.price.toFixed(2)}`)
       return parts.join(' | ')
     })
     .join('\n')
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 8000,
     system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
