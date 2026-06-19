@@ -155,7 +155,11 @@ Rules:
 
   const rawGroups = toolUse.input?.groups
   if (!rawGroups || !Array.isArray(rawGroups)) {
-    return NextResponse.json({ error: 'AI returned malformed groups' }, { status: 500 })
+    console.error('[ai-match] Malformed tool input:', JSON.stringify(toolUse.input))
+    return NextResponse.json({
+      error: 'AI returned malformed groups',
+      debug: { stopReason: response.stop_reason, inputKeys: Object.keys(toolUse.input ?? {}), inputSample: JSON.stringify(toolUse.input).slice(0, 500) },
+    }, { status: 500 })
   }
 
   // Build MatchGroup[], filtering out any unknown row IDs
