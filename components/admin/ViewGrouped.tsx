@@ -1,7 +1,7 @@
 'use client'
 
 import type { GroupedRow, VendorSummary, CartItem } from '@/types/database'
-import { parsePoundsFromUnitSize } from '@/lib/utils/parseUnitSize'
+import { normalizePrice } from '@/lib/utils/parseUnitSize'
 
 interface Props {
   rows: GroupedRow[]
@@ -69,14 +69,13 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                       <th className="th w-32">Item #</th>
                       <th className="th">Item Name / Description</th>
                       <th className="th w-28 text-right">Case Price</th>
-                      <th className="th w-28 text-right">Price / lb</th>
+                      <th className="th w-32 text-right">Price / unit</th>
                       <th className="th w-16 text-center">Cart</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-light-grey-100">
                     {vendorRows.map(row => {
-                      const lbs = parsePoundsFromUnitSize(row.unit_size)
-                      const pricePerLb = lbs !== null ? row.price / lbs : null
+                      const norm = normalizePrice(row.price, row.unit_size)
                       const inCart = cartRowIds.has(row.id)
 
                       return (
@@ -96,8 +95,18 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                             ${row.price.toFixed(2)}
                           </td>
                           <td className="td text-right tabular-nums">
-                            {pricePerLb !== null ? (
-                              <span className="text-primary font-medium">${pricePerLb.toFixed(2)}</span>
+                            {norm !== null ? (
+                              <div>
+                                <span className="text-primary font-medium">${norm.value.toFixed(2)}</span>
+                                <div className="text-xs text-light-grey-400 mt-0.5">
+                                  <span className={`inline-block text-[10px] font-semibold px-1 py-px rounded mr-1 ${norm.label === '$/lb' ? 'bg-secondary-100 text-primary-300' : 'bg-amber-50 text-amber-700'}`}>
+                                    {norm.label}
+                                  </span>
+                                  {norm.label === '$/lb'
+                                    ? `${norm.total % 1 === 0 ? norm.total : norm.total.toFixed(1)} lb case`
+                                    : `${norm.total} units/case`}
+                                </div>
+                              </div>
                             ) : (
                               <span className="text-light-grey-300">—</span>
                             )}

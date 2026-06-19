@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { ComparisonRow, VendorSummary, MatchGroup, CartItem } from '@/types/database'
-import { parsePoundsFromUnitSize } from '@/lib/utils/parseUnitSize'
+import { normalizePrice } from '@/lib/utils/parseUnitSize'
 
 const C = {
   bg:          '#fdfcfa',
@@ -310,7 +310,7 @@ function AIMatchView({
             <tr>
               <th style={{ ...SUB_TH, textAlign: 'left', borderRight: `1px solid ${C.border}` }}>Common name · vendor item name</th>
               {vendors.map((v, i) => (
-                <th key={v.vendor_id} style={{ ...SUB_TH, textAlign: 'center', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}>Normalized $</th>
+                <th key={v.vendor_id} style={{ ...SUB_TH, textAlign: 'center', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}>price · unit size</th>
               ))}
               <th style={{ ...SUB_TH, textAlign: 'center' }}>vs highest</th>
             </tr>
@@ -327,25 +327,19 @@ function AIMatchView({
               const byVendor: Record<string, MatchGroup['vendorItems'][0]> = {}
               group.vendorItems.forEach(vi => { byVendor[vi.vendorId] = vi })
 
-              // Compute lbs per item
-              const lbsById: Record<string, number | null> = {}
-              group.vendorItems.forEach(vi => {
-                lbsById[vi.rowId] = parsePoundsFromUnitSize(vi.unitSize)
-              })
+              // Normalize price per vendor item
+              const normById: Record<string, ReturnType<typeof normalizePrice>> = {}
+              group.vendorItems.forEach(vi => { normById[vi.rowId] = normalizePrice(vi.price, vi.unitSize) })
 
-              // Use per-lb normalization if all present vendors have parseable weights
-              const presentItems = group.vendorItems
-              const weightedItems = presentItems.filter(vi => lbsById[vi.rowId] !== null)
-              const usePerLb = weightedItems.length >= 2 || (presentItems.length === 1 && weightedItems.length === 1)
-
-              // Normalized comparison values
-              const normValues = presentItems.map(vi => {
-                const lbs = lbsById[vi.rowId]
-                return usePerLb && lbs ? vi.price / lbs : vi.price
-              })
+              // Only compare when all present vendors share the same unit label
+              const presentNorms = group.vendorItems.map(vi => normById[vi.rowId]).filter(Boolean)
+              const labels = [...new Set(presentNorms.map(n => n!.label))]
+              const canCompare = labels.length === 1 && presentNorms.length > 1
+              const normValues = canCompare ? presentNorms.map(n => n!.value) : []
               const minNorm = normValues.length ? Math.min(...normValues) : null
               const maxNorm = normValues.length ? Math.max(...normValues) : null
-              const saving  = minNorm !== null && maxNorm !== null && normValues.length > 1 ? maxNorm - minNorm : 0
+              const saving = minNorm !== null && maxNorm !== null ? maxNorm - minNorm : 0
+              const mixedUnits = presentNorms.length > 1 && labels.length > 1
 
               return (
                 <tr
@@ -357,24 +351,9 @@ function AIMatchView({
                 >
                   {/* Item name column */}
                   <td style={{ ...TD, borderRight: `1px solid ${C.border}`, borderLeft: group.isMatched ? `3px solid ${C.matchedLeft}` : `3px solid transparent` }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.9rem', color: C.dark, fontWeight: 700 }}>
-                        {group.commonName}
-                      </span>
-                      <span style={{
-                        fontFamily: 'var(--font-sans)',
-                        fontSize: '0.6rem',
-                        letterSpacing: '0.1em',
-                        textTransform: 'uppercase',
-                        fontWeight: 600,
-                        color: usePerLb ? C.primary : C.textMuted,
-                        background: usePerLb ? '#eef2f5' : C.beigeLight,
-                        borderRadius: 4,
-                        padding: '1px 6px',
-                      }}>
-                        {usePerLb ? '$/lb' : '$/case'}
-                      </span>
-                    </div>
+                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.9rem', color: C.dark, fontWeight: 700 }}>
+                      {group.commonName}
+                    </span>
                     {group.isMatched && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem', marginTop: 3 }}>
                         {group.vendorItems.map(vi => (
@@ -401,33 +380,30 @@ function AIMatchView({
                         </td>
                       )
                     }
-                    const lbs = lbsById[vi.rowId]
-                    const normPrice = usePerLb && lbs ? vi.price / lbs : vi.price
-                    const isLowest = minNorm !== null && normPrice === minNorm && normValues.length > 1
+                    const norm = normById[vi.rowId]
+                    const isLowest = canCompare && norm !== null && norm.value === minNorm
 
                     return (
                       <td key={v.vendor_id} style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}>
                         <div>
-                          {/* Normalized price (primary display) */}
-                          {isLowest ? (
-                            <span style={{ display: 'inline-block', background: C.lowestBg, color: C.lowestText, border: `1px solid ${C.lowestBorder}`, borderRadius: 5, padding: '2px 9px', fontWeight: 600, fontSize: '0.84rem' }}>
-                              ${normPrice.toFixed(2)}{usePerLb ? '/lb' : ''}
-                            </span>
+                          {norm ? (
+                            isLowest ? (
+                              <span style={{ display: 'inline-block', background: C.lowestBg, color: C.lowestText, border: `1px solid ${C.lowestBorder}`, borderRadius: 5, padding: '2px 9px', fontWeight: 600, fontSize: '0.84rem' }}>
+                                ${norm.value.toFixed(2)}{norm.label === '$/lb' ? '/lb' : '/ct'}
+                              </span>
+                            ) : (
+                              <span style={{ color: C.textMid, fontWeight: 500, fontSize: '0.84rem' }}>
+                                ${norm.value.toFixed(2)}{norm.label === '$/lb' ? '/lb' : '/ct'}
+                              </span>
+                            )
                           ) : (
                             <span style={{ color: C.textMid, fontWeight: 500, fontSize: '0.84rem' }}>
-                              ${normPrice.toFixed(2)}{usePerLb ? '/lb' : ''}
+                              ${vi.price.toFixed(2)}
                             </span>
                           )}
-                          {/* Case price + pack size in small text below */}
                           <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 3, lineHeight: 1.4 }}>
-                            {usePerLb && (
-                              <span>${vi.price.toFixed(2)} case</span>
-                            )}
-                            {vi.unitSize && (
-                              <span style={{ marginLeft: usePerLb ? 4 : 0 }}>· {vi.unitSize}</span>
-                            )}
+                            ${vi.price.toFixed(2)} case{vi.unitSize ? ` · ${vi.unitSize}` : ''}
                           </div>
-                          {/* Add to cart */}
                           <button
                             onClick={() => onAddToCart({
                               rowId: vi.rowId,
@@ -462,10 +438,14 @@ function AIMatchView({
 
                   {/* Best save */}
                   <td style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {saving > 0 ? (
+                    {mixedUnits ? (
+                      <span style={{ fontFamily: 'var(--font-sans)', fontSize: '0.68rem', color: C.textMuted }}>units differ</span>
+                    ) : saving > 0 ? (
                       <div>
-                        <span style={{ color: '#059669', fontWeight: 600 }}>${saving.toFixed(2)}{usePerLb ? '/lb' : ''}</span>
-                        {usePerLb && maxNorm && minNorm && (
+                        <span style={{ color: '#059669', fontWeight: 600 }}>
+                          ${saving.toFixed(2)}{labels[0] === '$/lb' ? '/lb' : '/ct'}
+                        </span>
+                        {maxNorm && (
                           <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 2 }}>
                             {((saving / maxNorm) * 100).toFixed(0)}% cheaper
                           </div>
