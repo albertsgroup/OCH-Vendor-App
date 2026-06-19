@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { ComparisonRow, VendorSummary, MatchGroup } from '@/types/database'
+import type { ComparisonRow, VendorSummary, MatchGroup, CartItem } from '@/types/database'
 import { parsePoundsFromUnitSize } from '@/lib/utils/parseUnitSize'
 
 const C = {
@@ -62,11 +62,12 @@ interface Props {
   matchGroups: MatchGroup[] | null
   onMatchComplete: (groups: MatchGroup[]) => void
   onClearMatch: () => void
+  onAddToCart: (item: CartItem) => void
 }
 
 type Mode = 'all' | 'savings' | 'missing'
 
-export default function ViewComparison({ rows, vendors, selectedWeek, matchGroups, onMatchComplete, onClearMatch }: Props) {
+export default function ViewComparison({ rows, vendors, selectedWeek, matchGroups, onMatchComplete, onClearMatch, onAddToCart }: Props) {
   const [matching, setMatching] = useState(false)
   const [matchError, setMatchError] = useState<string | null>(null)
 
@@ -126,6 +127,7 @@ export default function ViewComparison({ rows, vendors, selectedWeek, matchGroup
       onSearchChange={setAiSearch}
       onRerun={runAIMatch}
       onClear={onClearMatch}
+      onAddToCart={onAddToCart}
     />
   }
 
@@ -206,6 +208,7 @@ function AIMatchView({
   onSearchChange,
   onRerun,
   onClear,
+  onAddToCart,
 }: {
   groups: MatchGroup[]
   vendors: VendorSummary[]
@@ -213,6 +216,7 @@ function AIMatchView({
   onSearchChange: (v: string) => void
   onRerun: () => void
   onClear: () => void
+  onAddToCart: (item: CartItem) => void
 }) {
   const filtered = useMemo(() => {
     if (!search) return groups
@@ -423,6 +427,34 @@ function AIMatchView({
                               <span style={{ marginLeft: usePerLb ? 4 : 0 }}>· {vi.unitSize}</span>
                             )}
                           </div>
+                          {/* Add to cart */}
+                          <button
+                            onClick={() => onAddToCart({
+                              rowId: vi.rowId,
+                              vendorId: vi.vendorId,
+                              vendorName: vi.vendorName,
+                              itemName: group.commonName,
+                              vendorItemNumber: vi.vendorItemNumber ?? null,
+                              unitSize: vi.unitSize ?? null,
+                              price: vi.price,
+                              quantity: 1,
+                            })}
+                            style={{
+                              marginTop: 6,
+                              background: isLowest ? C.lowestText : C.primary,
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 5,
+                              padding: '3px 10px',
+                              fontSize: '0.68rem',
+                              fontFamily: 'var(--font-sans)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              letterSpacing: '0.04em',
+                            }}
+                          >
+                            + Add
+                          </button>
                         </div>
                       </td>
                     )

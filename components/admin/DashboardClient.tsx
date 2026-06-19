@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ViewGrouped from './ViewGrouped'
 import ViewComparison from './ViewComparison'
@@ -36,8 +36,17 @@ export default function DashboardClient({
   // Cart — persists across tab switches
   const [cartItems, setCartItems] = useState<CartItem[]>([])
 
-  // AI match — persists across tab switches
+  // AI match — persists across tab switches and sign out/in via localStorage
   const [matchGroups, setMatchGroups] = useState<MatchGroup[] | null>(null)
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`och_ai_match_${selectedWeek}`)
+    if (saved) {
+      try { setMatchGroups(JSON.parse(saved)) } catch { setMatchGroups(null) }
+    } else {
+      setMatchGroups(null)
+    }
+  }, [selectedWeek])
 
   function handleWeekChange(week: string) {
     startTransition(() => {
@@ -161,8 +170,15 @@ export default function DashboardClient({
           vendors={vendors}
           selectedWeek={selectedWeek}
           matchGroups={matchGroups}
-          onMatchComplete={setMatchGroups}
-          onClearMatch={() => setMatchGroups(null)}
+          onMatchComplete={groups => {
+            setMatchGroups(groups)
+            localStorage.setItem(`och_ai_match_${selectedWeek}`, JSON.stringify(groups))
+          }}
+          onClearMatch={() => {
+            setMatchGroups(null)
+            localStorage.removeItem(`och_ai_match_${selectedWeek}`)
+          }}
+          onAddToCart={addToCart}
         />
       )}
 
