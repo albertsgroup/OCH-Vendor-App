@@ -153,8 +153,13 @@ Rules:
     return NextResponse.json({ error: 'AI did not return groups' }, { status: 500 })
   }
 
+  const rawGroups = toolUse.input?.groups
+  if (!rawGroups || !Array.isArray(rawGroups)) {
+    return NextResponse.json({ error: 'AI returned malformed groups' }, { status: 500 })
+  }
+
   // Build MatchGroup[], filtering out any unknown row IDs
-  const groups: MatchGroup[] = toolUse.input.groups
+  const groups: MatchGroup[] = rawGroups
     .map(g => {
       const vendorItems = g.rowIds
         .map(id => rowById[id])
