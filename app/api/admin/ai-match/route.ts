@@ -107,10 +107,12 @@ export async function GET(req: NextRequest) {
     })
     .join('\n')
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 8000,
-    system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
+  let response
+  try {
+    response = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 8000,
+      system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
 Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
 
@@ -120,13 +122,18 @@ Rules:
 - If only one vendor carries something, it still gets its own group (with one rowId)
 - Every single row ID in the input MUST appear in exactly one group — do not skip any
 - Vendors in this upload: ${vendorList}`,
-    tools: [GROUP_TOOL],
-    tool_choice: { type: 'tool', name: 'group_vendor_items' },
-    messages: [{
-      role: 'user',
-      content: `Group these ${rows.length} items from this week's uploads:\n\n${itemsText}`,
-    }],
-  })
+      tools: [GROUP_TOOL],
+      tool_choice: { type: 'tool', name: 'group_vendor_items' },
+      messages: [{
+        role: 'user',
+        content: `Group these ${rows.length} items from this week's uploads:\n\n${itemsText}`,
+      }],
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[ai-match] Anthropic API error:', message)
+    return NextResponse.json({ error: `AI API error: ${message}` }, { status: 500 })
+  }
 
   const toolUse = response.content.find(b => b.type === 'tool_use') as
     | { type: 'tool_use'; input: { groups: Array<{ commonName: string; rowIds: string[] }> } }
