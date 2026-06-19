@@ -120,8 +120,8 @@ async function handleAIMatch(req: NextRequest) {
   let response
   try {
     response = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 32000,
+      model: 'claude-sonnet-4-6',
+      max_tokens: 16000,
       system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
 Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
