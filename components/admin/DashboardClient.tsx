@@ -40,13 +40,22 @@ export default function DashboardClient({
   const [matchGroups, setMatchGroups] = useState<MatchGroup[] | null>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem(`och_ai_match_${selectedWeek}`)
-    if (saved) {
-      try { setMatchGroups(JSON.parse(saved)) } catch { setMatchGroups(null) }
-    } else {
-      setMatchGroups(null)
-    }
-  }, [selectedWeek])
+    const raw = localStorage.getItem(`och_ai_match_${selectedWeek}`)
+    if (!raw) { setMatchGroups(null); return }
+    try {
+      const { groups, savedAt } = JSON.parse(raw) as { groups: MatchGroup[]; savedAt: number }
+      // Invalidate if any vendor re-uploaded after the match was saved
+      const latestUpload = vendors
+        .filter(v => v.uploaded_at)
+        .reduce((max, v) => Math.max(max, new Date(v.uploaded_at!).getTime()), 0)
+      if (latestUpload > savedAt) {
+        localStorage.removeItem(`och_ai_match_${selectedWeek}`)
+        setMatchGroups(null)
+      } else {
+        setMatchGroups(groups)
+      }
+    } catch { setMatchGroups(null) }
+  }, [selectedWeek, vendors])
 
   function handleWeekChange(week: string) {
     startTransition(() => {
@@ -172,7 +181,7 @@ export default function DashboardClient({
           matchGroups={matchGroups}
           onMatchComplete={groups => {
             setMatchGroups(groups)
-            localStorage.setItem(`och_ai_match_${selectedWeek}`, JSON.stringify(groups))
+            localStorage.setItem(`och_ai_match_${selectedWeek}`, JSON.stringify({ groups, savedAt: Date.now() }))
           }}
           onClearMatch={() => {
             setMatchGroups(null)
