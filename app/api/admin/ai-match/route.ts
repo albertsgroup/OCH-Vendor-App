@@ -34,6 +34,16 @@ const GROUP_TOOL: Anthropic.Tool = {
 }
 
 export async function GET(req: NextRequest) {
+  try {
+    return await handleAIMatch(req)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[ai-match] Unhandled error:', message)
+    return NextResponse.json({ error: `Server error: ${message}` }, { status: 500 })
+  }
+}
+
+async function handleAIMatch(req: NextRequest) {
   const week = req.nextUrl.searchParams.get('week')
   if (!week) return NextResponse.json({ error: 'week parameter required' }, { status: 400 })
 
