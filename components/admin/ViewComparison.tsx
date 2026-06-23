@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { ComparisonRow, VendorSummary, MatchGroup, CartItem } from '@/types/database'
-import { normalizePrice, breakdownPrice } from '@/lib/utils/parseUnitSize'
+import { normalizePrice, breakdownPrice, extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 
 const C = {
   bg:          '#fdfcfa',
@@ -327,9 +327,18 @@ function AIMatchView({
               const byVendor: Record<string, MatchGroup['vendorItems'][0]> = {}
               group.vendorItems.forEach(vi => { byVendor[vi.vendorId] = vi })
 
-              // Normalize price per vendor item
+              // Resolve effective unit size: stored value takes priority; fall back to
+              // extracting pack info from the item name (e.g. "4/5# SWISS CHEESE" → "4/5LB")
+              const effectiveUnitSizeById: Record<string, string | null> = {}
+              group.vendorItems.forEach(vi => {
+                effectiveUnitSizeById[vi.rowId] = vi.unitSize || extractUnitSizeFromName(vi.itemName)
+              })
+
+              // Always normalise to $/lb or $/ct for comparison
               const normById: Record<string, ReturnType<typeof normalizePrice>> = {}
-              group.vendorItems.forEach(vi => { normById[vi.rowId] = normalizePrice(vi.price, vi.unitSize) })
+              group.vendorItems.forEach(vi => {
+                normById[vi.rowId] = normalizePrice(vi.price, effectiveUnitSizeById[vi.rowId])
+              })
 
               // Only compare when all present vendors share the same unit label
               const presentNorms = group.vendorItems.map(vi => normById[vi.rowId]).filter(Boolean)
@@ -381,7 +390,7 @@ function AIMatchView({
                       )
                     }
                     const norm = normById[vi.rowId]
-                    const bd   = breakdownPrice(vi.price, vi.unitSize)
+                    const bd   = breakdownPrice(vi.price, effectiveUnitSizeById[vi.rowId])
                     const isLowest = canCompare && norm !== null && norm.value === minNorm
 
                     return (

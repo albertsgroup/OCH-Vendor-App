@@ -102,6 +102,52 @@ export function normalizePrice(price: number, unitSize: string | null | undefine
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Extract unit-size embedded in item names
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a pack/unit-size prefix embedded in vendor item descriptions.
+ * Many vendors (US Foods, Curtze) lead descriptions with pack info instead of
+ * using a separate column.
+ *
+ * Examples:
+ *   "4/5# 120 SLICE SWISS AMERICAN CHEESE"  → "4/5LB"
+ *   "6/5LB SHREDDED CHEDDAR"                → "6/5LB"
+ *   "12/32OZ HEAVY CREAM"                   → "12/32OZ"
+ *   "4/1GAL WHOLE MILK"                     → "4/1GAL"
+ *   "36/1LB UNSALTED BUTTER"                → "36/1LB"
+ *   "5LB GROUND BEEF"                       → "5LB"
+ *   "100CT GLOVES"                          → "100CT"
+ *   "SWISS AMERICAN CHEESE"                 → null (no pack prefix)
+ */
+export function extractUnitSizeFromName(name: string | null | undefined): string | null {
+  if (!name) return null
+  const s = name.trim().toUpperCase()
+
+  // Units ordered longest-first to prevent prefix matches (e.g. LBS before LB)
+  const UNITS = 'LBS|LB|GAL|OZ|KG|QT|ML|CT|PCS|PC|EACH|EA|COUNT|#'
+
+  // Multi-pack: QTY/SIZE UNIT  e.g. "4/5LB", "4/5#", "12/32OZ", "4/1GAL"
+  const mp = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*\\/\\s*(\\d+(?:\\.\\d+)?)\\s*(${UNITS})\\b`))
+  if (mp) {
+    const qty  = mp[1]
+    const size = mp[2]
+    const unit = (mp[3] === '#' || mp[3] === 'LBS') ? 'LB' : mp[3]
+    return `${qty}/${size}${unit}`
+  }
+
+  // Single weight/count at start: "5LB BUTTER", "16OZ SOUR CREAM", "100CT GLOVES"
+  const sp = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${UNITS})\\b`))
+  if (sp) {
+    const size = sp[1]
+    const unit = (sp[2] === '#' || sp[2] === 'LBS') ? 'LB' : sp[2]
+    return `${size}${unit}`
+  }
+
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Full 3-level price breakdown
 // ─────────────────────────────────────────────────────────────────────────────
 

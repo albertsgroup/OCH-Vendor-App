@@ -1,7 +1,7 @@
 'use client'
 
 import type { GroupedRow, VendorSummary, CartItem } from '@/types/database'
-import { breakdownPrice } from '@/lib/utils/parseUnitSize'
+import { breakdownPrice, extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 
 interface Props {
   rows: GroupedRow[]
@@ -75,7 +75,9 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                   </thead>
                   <tbody className="divide-y divide-light-grey-100">
                     {vendorRows.map(row => {
-                      const bd = breakdownPrice(row.price, row.unit_size)
+                      // Use stored unit_size; fall back to extracting from item name for older rows
+                      const effectiveUnitSize = row.unit_size || extractUnitSizeFromName(row.item_name)
+                      const bd = breakdownPrice(row.price, effectiveUnitSize)
                       const inCart = cartRowIds.has(row.id)
 
                       return (
@@ -86,8 +88,8 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                           <td className="td">
                             <div>
                               <p className="font-medium text-och-black">{row.item_name ?? '—'}</p>
-                              {row.unit_size && (
-                                <p className="text-xs text-light-grey-400 mt-0.5">{row.unit_size}</p>
+                              {effectiveUnitSize && (
+                                <p className="text-xs text-light-grey-400 mt-0.5">{effectiveUnitSize}</p>
                               )}
                             </div>
                           </td>

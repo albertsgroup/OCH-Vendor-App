@@ -11,6 +11,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 
 export interface ParsedRow {
   row_index: number
@@ -325,6 +326,11 @@ function parseRowsLocally(
         } else if (packVal) {
           unitSize = `${packVal} CT`
         }
+      }
+      // Last resort: extract pack info embedded in the item name itself
+      // e.g. "4/5# SWISS CHEESE" → "4/5LB"
+      if (!unitSize) {
+        unitSize = extractUnitSizeFromName(itemName)
       }
     }
 
