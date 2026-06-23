@@ -126,37 +126,41 @@ const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
         description: 'Set only if there is no identifiable price column or the file is unreadable. Leave empty for normal files.',
       },
       fatal_suggestions: { type: 'array', items: { type: 'string' } },
+      no_headers: {
+        type: 'boolean',
+        description: 'True if the file has NO column header row — data begins from the very first row. In this case, set col_* fields to 0-based column index numbers instead of header name strings.',
+      },
       header_row: {
         type: 'integer',
-        description: 'Zero-based index (relative to the rows shown) of the row that contains the actual column headers. Usually 0 but may be higher if the file has metadata rows (company name, date, etc.) before the column headers.',
+        description: 'Zero-based index (relative to the rows shown) of the row that contains the actual column headers. Usually 0 but may be higher if the file has metadata rows (company name, date, etc.) before the column headers. Ignored when no_headers=true.',
       },
       item_number_col: {
         type: 'string',
-        description: 'Exact header text for the vendor SKU/item number column. Empty string if absent.',
+        description: 'When headers exist: exact header text for the vendor SKU/item number column. When no_headers=true: "0", "1", "2", etc. for the column index. Empty string if absent.',
       },
       item_name_col: {
         type: 'string',
-        description: 'Exact header text for the item name/description column.',
+        description: 'When headers exist: exact header text for the item name/description column. When no_headers=true: "0", "1", "2", etc. for the column index.',
       },
       unit_size_col: {
         type: 'string',
-        description: 'Exact header text for a combined pack/unit-size column (e.g. "Pack Size", "UOM", "Unit"). Empty string if the file uses separate Pack/Size/Unit columns instead.',
+        description: 'When headers exist: exact header text for a combined pack/unit-size column (e.g. "Pack Size", "UOM", "Unit"). When no_headers=true: column index or empty. Empty string if the file uses separate Pack/Size/Unit columns instead.',
       },
       pack_col: {
         type: 'string',
-        description: 'Exact header for number of packs per case (e.g. "Pack", "Ct", "Qty", "Count"). Empty string if absent or if already covered by unit_size_col.',
+        description: 'Exact header (or column index if no_headers) for number of packs per case. Empty string if absent.',
       },
       pack_size_col: {
         type: 'string',
-        description: 'Exact header for weight/size per individual pack (e.g. "Size", "Wt", "Weight", "Each Size", "Each Wt"). Empty string if absent.',
+        description: 'Exact header (or column index if no_headers) for weight/size per individual pack. Empty string if absent.',
       },
       pack_unit_col: {
         type: 'string',
-        description: 'Exact header for the unit of measure per pack (e.g. "Unit", "UOM", "UofM", "Measure"). Empty string if absent.',
+        description: 'Exact header (or column index if no_headers) for the unit of measure per pack. Empty string if absent.',
       },
       price_col: {
         type: 'string',
-        description: 'Exact header text for the price column. If multiple price columns exist, pick "Your Price", "Net Price", or "Case Price" over "List Price".',
+        description: 'When headers exist: exact header text for the price column — pick "Your Price" or "Net Price" over "List Price". When no_headers=true: column index string (e.g. "2").',
       },
     },
     required: ['item_name_col', 'price_col'],
@@ -193,18 +197,26 @@ async function detectColumnIndices(
     max_tokens: 600,
     system: `You identify columns in vendor order guide spreadsheets for a restaurant.
 
-IMPORTANT: Some XLS/XLSX files have 1-3 metadata rows at the top (vendor name, date, "Order Guide" title, etc.) BEFORE the actual column header row. Identify which row is the actual header row using the header_row field.
+TWO POSSIBLE FILE TYPES:
 
-Some vendors (like Sysco, US Foods) use SEPARATE columns for pack count, pack size, and unit instead of a single combined unit-size column. Detect both patterns.
+1. FILE WITH COLUMN HEADERS: Most files have a header row ("Description", "Price", "Item #", etc.).
+   - Set no_headers=false
+   - Some files have 1-3 metadata rows (company name, date) BEFORE the header — use header_row to indicate which row is the actual header
+   - Return exact header text in item_name_col, price_col, etc.
 
-Column meanings:
-- ITEM NUMBER: vendor SKU. Headers: "Item #", "SKU", "Cat #", "Code". May be absent.
-- ITEM NAME: product description. Headers: "Description", "Item Description", "Product", "Name". Always present.
-- UNIT SIZE (combined): e.g. "Pack Size", "UOM", "Unit" — a single column like "4/5LB" or "12/7OZ". Use this if present.
-- PACK (separate): number of packs per case. Headers: "Pack", "Ct", "Qty", "Count". Use when size is split across columns.
-- PACK SIZE (separate): weight or size per pack. Headers: "Size", "Wt", "Weight", "Each Size", "Each Wt".
-- PACK UNIT (separate): unit of the pack size. Headers: "Unit", "UOM", "UofM", "Measure" (e.g. LB, OZ, GAL).
-- PRICE: what the restaurant pays per case. Headers: "Price", "Unit Price", "Your Price", "Net Price", "Case Price", "Each". If multiple price columns, pick "Your Price" or "Net Price" over "List Price". Always present.`,
+2. FILE WITH NO COLUMN HEADERS (like a bare export or internal spreadsheet): Data starts from row 0 with no header labels.
+   - Signs: every row has the same structure; first column is a numeric item code; no row looks like labels
+   - Set no_headers=true
+   - Return column INDEX numbers as strings: "0", "1", "2", etc. in item_name_col, price_col, etc.
+
+Column meanings regardless of format:
+- ITEM NUMBER: vendor SKU/product code — typically a short integer or alphanumeric code. May be absent.
+- ITEM NAME: product description — always a string with product name and pack info like "4/5# SWISS CHEESE".
+- UNIT SIZE: pack/size info if in a separate column. Often embedded in item name instead.
+- PRICE: what the restaurant pays per case — always a positive decimal number.
+  If multiple price columns, prefer "Your Price" / "Net Price" over "List Price".
+
+Some vendors (Sysco, US Foods) split pack info into separate Pack, Size, Unit columns — detect those too.`,
     tools: [DETECT_COLUMNS_TOOL],
     tool_choice: { type: 'tool', name: 'detect_columns' },
     messages: [{
@@ -229,10 +241,61 @@ Column meanings:
     }
   }
 
-  // Use the AI-identified header row index (default 0)
+  const noHeaders = result.no_headers === true
+
+  let headers: string[]
+  let dataRows: string[][]
+
+  if (noHeaders) {
+    // No header row — data starts at row 0, resolve columns by numeric index
+    headers = []
+    dataRows = allRows.filter(r => r.some(c => c.trim()))
+
+    function parseColIdx(val: unknown): number {
+      if (val === null || val === undefined || val === '') return -1
+      const n = parseInt(String(val), 10)
+      return isNaN(n) ? -1 : n
+    }
+
+    const perLbIdx = -1  // no headers → no Per Lb column
+    const indices: ColumnIndices = {
+      itemNumber: parseColIdx(result.item_number_col),
+      itemName:   parseColIdx(result.item_name_col),
+      unitSize:   parseColIdx(result.unit_size_col),
+      price:      parseColIdx(result.price_col),
+      pack:       parseColIdx(result.pack_col),
+      packSize:   parseColIdx(result.pack_size_col),
+      packUnit:   parseColIdx(result.pack_unit_col),
+      perLb:      perLbIdx,
+    }
+
+    if (indices.itemName < 0 || indices.price < 0) {
+      return {
+        error: 'Could not identify the item name or price column in this file.',
+        suggestions: [
+          'The file appears to have no column headers.',
+          'Try adding a header row (Item #, Description, Price) to the first row.',
+          'Or export as CSV from your ordering system.',
+        ],
+      }
+    }
+
+    const columnMapping: Record<string, string> = {
+      item_number: String(result.item_number_col ?? ''),
+      item_name:   String(result.item_name_col ?? ''),
+      unit_size:   String(result.unit_size_col ?? ''),
+      price:       String(result.price_col ?? ''),
+      pack: '', pack_size: '', pack_unit: '',
+    }
+
+    console.log(`[parseUpload] no_headers=true, col indices:`, columnMapping)
+    return { indices, columnMapping, headers, dataRows }
+  }
+
+  // Has headers — use the AI-identified header row index (default 0)
   const headerRowIdx = typeof result.header_row === 'number' ? Math.max(0, result.header_row) : 0
-  const headers = (allRows[headerRowIdx] ?? allRows[0]).map(c => normalizeHeader(c))
-  const dataRows = allRows
+  headers = (allRows[headerRowIdx] ?? allRows[0]).map(c => normalizeHeader(c))
+  dataRows = allRows
     .slice(headerRowIdx + 1)
     .filter(r => r.some(c => c.trim()))
 
@@ -248,7 +311,7 @@ Column meanings:
   }
 
   // Detect "Per Lb" / "Per Unit" flag column (Sysco-specific)
-  const perLbIdx = headers.findIndex(h =>
+  const perLbIdxH = headers.findIndex(h =>
     h === 'per lb' || h === 'per_lb' || h === 'perlb' || h === 'per unit' || h === 'per_unit'
   )
 
@@ -260,7 +323,7 @@ Column meanings:
     pack:       findIndex(result.pack_col),
     packSize:   findIndex(result.pack_size_col),
     packUnit:   findIndex(result.pack_unit_col),
-    perLb:      perLbIdx,
+    perLb:      perLbIdxH,
   }
 
   if (indices.itemName < 0 || indices.price < 0) {
