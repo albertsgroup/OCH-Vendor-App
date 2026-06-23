@@ -21,8 +21,8 @@ const GROUP_TOOL: Anthropic.Tool = {
             },
             rowIds: {
               type: 'array',
-              description: 'Row IDs that belong to this group (one per vendor max)',
-              items: { type: 'string' },
+              description: 'Integer indices of items belonging to this group (one per vendor max). Use the number at the start of each input line.',
+              items: { type: 'number' },
             },
           },
           required: ['commonName', 'rowIds'],
@@ -108,10 +108,13 @@ async function handleAIMatch(req: NextRequest) {
 
   const vendorList = vendorIds.map(id => vendorNameById[id]).join(', ')
 
+  // Use short integer indices instead of UUIDs in the prompt — reduces output tokens ~10x
+  const idByIndex: string[] = rows.map(r => r.id)  // index → real UUID
   const itemsText = rows
-    .map(r => {
+    .map((r, idx) => {
       const v = rowById[r.id]
-      const parts = [`ID:${r.id}`, `"${v.itemName}"`]
+      const vendor = v.vendorName.slice(0, 12)  // truncate to save tokens
+      const parts = [`${idx}`, `[${vendor}]`, `"${v.itemName}"`]
       if (v.unitSize) parts.push(v.unitSize)
       return parts.join(' | ')
     })
@@ -120,8 +123,8 @@ async function handleAIMatch(req: NextRequest) {
   let response
   try {
     response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 16000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 6000,
       system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
 Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
@@ -130,7 +133,8 @@ Rules:
 - Match items that OCH would choose ONE vendor to supply (competing products for the same use)
 - A clean common name is short, professional, readable: "Shredded Mozzarella", not "MOZZ SHRD WM 6/5LB BLKHD"
 - If only one vendor carries something, it still gets its own group (with one rowId)
-- Every single row ID in the input MUST appear in exactly one group — do not skip any
+- Every single index in the input MUST appear in exactly one group — do not skip any
+- rowIds in output are the INTEGER INDICES from the input (not UUIDs)
 - Vendors in this upload: ${vendorList}`,
       tools: [GROUP_TOOL],
       tool_choice: { type: 'tool', name: 'group_vendor_items' },
@@ -162,11 +166,18 @@ Rules:
     }, { status: 500 })
   }
 
-  // Build MatchGroup[], filtering out any unknown row IDs
+  // Claude returns integer indices; map back to real UUIDs then look up vendor items
   const groups: MatchGroup[] = rawGroups
     .map(g => {
       const vendorItems = g.rowIds
-        .map(id => rowById[id])
+        .map(rawId => {
+          // Accept both numeric strings ("42") and already-correct UUIDs (fallback)
+          const idx = Number(rawId)
+          const uuid = (!isNaN(idx) && idx >= 0 && idx < idByIndex.length)
+            ? idByIndex[idx]
+            : String(rawId)
+          return rowById[uuid]
+        })
         .filter(Boolean)
       return {
         commonName: g.commonName,
