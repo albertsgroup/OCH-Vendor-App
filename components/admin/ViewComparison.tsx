@@ -402,7 +402,12 @@ function AIMatchView({
                             </span>
                           )}
                           <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 3, lineHeight: 1.4 }}>
-                            ${vi.price.toFixed(2)} case{vi.unitSize ? ` · ${vi.unitSize}` : ''}
+                            {norm
+                              ? norm.label === '$/lb'
+                                ? `$${vi.price.toFixed(2)} · ${norm.total % 1 === 0 ? norm.total : norm.total.toFixed(1)} lb case`
+                                : `$${vi.price.toFixed(2)} · ${norm.total} units`
+                              : `$${vi.price.toFixed(2)} case${vi.unitSize ? ` · ${vi.unitSize}` : ''}`
+                            }
                           </div>
                           <button
                             onClick={() => onAddToCart({

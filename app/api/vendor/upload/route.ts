@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
     const buffer = await file.arrayBuffer()
 
     // ── Step 1: AI-powered file parsing ──────────────────
+    const t1 = Date.now()
     const parseResult = await parseUploadWithAI(buffer, file.name)
+    console.log(`[upload] Step 1 parse: ${Date.now() - t1}ms`)
 
     if (!parseResult.success) {
       return NextResponse.json({
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
     // ── Step 2: Fetch catalogue + saved mappings ──────────
     const admin = createAdminClient()
 
+    const t2 = Date.now()
     const [
       { data: internalItems, error: itemsErr },
       { data: savedMappings },
@@ -75,6 +78,7 @@ export async function POST(request: NextRequest) {
       admin.from('items').select('id, item_number, item_name').eq('is_active', true),
       admin.from('vendor_item_mappings').select('vendor_item_number, internal_item_id').eq('vendor_id', user.id),
     ])
+    console.log(`[upload] Step 2 DB: ${Date.now() - t2}ms`)
 
     if (itemsErr) {
       // Table probably doesn't exist yet — remind admin to run migrations
@@ -98,9 +102,12 @@ export async function POST(request: NextRequest) {
       !r.vendor_item_number || !savedMap[r.vendor_item_number]
     )
 
+    console.log(`[upload] Step 3 match: ${parsedRows.length} total rows, ${rowsNeedingMatch.length} need AI matching`)
+    const t3 = Date.now()
     const aiMatches = rowsNeedingMatch.length > 0
       ? await matchItemsWithAI(vendorName, rowsNeedingMatch, internalItems ?? [])
       : []
+    console.log(`[upload] Step 3 match done: ${Date.now() - t3}ms`)
 
     const aiMatchByRowIndex: Record<number, (typeof aiMatches)[0]> = {}
     aiMatches.forEach(m => { aiMatchByRowIndex[m.row_index] = m })

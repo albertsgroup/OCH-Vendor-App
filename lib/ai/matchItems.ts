@@ -103,22 +103,21 @@ Rules:
 • Common names for new items: short, generic, professional (e.g. "Cascade Hops", "Pilsner Malt", "Chicken Breasts")
 • You MUST return a match entry for every single row_index provided`
 
-  // Process in chunks so we stay within token limits
+  // Process chunks in parallel for speed
   const chunks: ParsedRow[][] = []
   for (let i = 0; i < rows.length; i += MATCH_CHUNK_SIZE) {
     chunks.push(rows.slice(i, i + MATCH_CHUNK_SIZE))
   }
 
-  const allMatches: ItemMatch[] = []
+  const chunkResults = await Promise.all(
+    chunks.map(async (chunk, chunkIdx) => {
+      const chunkMatches: ItemMatch[] = []
 
-  for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
-    const chunk = chunks[chunkIdx]
+      const vendorItemsText = chunk
+        .map(r => `row_index:${r.row_index} | #${r.vendor_item_number ?? 'N/A'} | "${r.item_name ?? 'Unknown'}"${r.unit_size ? ` | ${r.unit_size}` : ''} | $${r.price.toFixed(2)}`)
+        .join('\n')
 
-    const vendorItemsText = chunk
-      .map(r => `row_index:${r.row_index} | #${r.vendor_item_number ?? 'N/A'} | "${r.item_name ?? 'Unknown'}"${r.unit_size ? ` | ${r.unit_size}` : ''} | $${r.price.toFixed(2)}`)
-      .join('\n')
-
-    const userContent = `VENDOR: ${vendorName}
+      const userContent = `VENDOR: ${vendorName}
 
 INTERNAL CATALOGUE:
 ${catalogueText}
@@ -126,59 +125,60 @@ ${catalogueText}
 VENDOR ITEMS TO MATCH (chunk ${chunkIdx + 1}/${chunks.length}):
 ${vendorItemsText}`
 
-    try {
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 8000,
-        system: systemPrompt,
-        tools: [MATCH_TOOL],
-        tool_choice: { type: 'tool', name: 'match_items' },
-        messages: [{ role: 'user', content: userContent }],
-      })
-
-      const toolUse = response.content.find(b => b.type === 'tool_use') as
-        | { type: 'tool_use'; input: { matches: Array<Record<string, unknown>> } }
-        | undefined
-
-      if (!toolUse) {
-        console.error(`[matchItems] Chunk ${chunkIdx + 1}: no tool_use block`, JSON.stringify(response.content))
-        chunk.forEach(r => allMatches.push(fallbackMatch(r, 'AI matching failed — please review')))
-        continue
-      }
-
-      const rawMatches = toolUse.input.matches ?? []
-      console.log(`[matchItems] Chunk ${chunkIdx + 1}: ${rawMatches.length} matches returned`)
-
-      // Build a set of row_indexes returned so we can fill any gaps
-      const returnedIndexes = new Set(rawMatches.map(m => Number(m.row_index)))
-
-      for (const m of rawMatches) {
-        allMatches.push({
-          row_index: Number(m.row_index),
-          match_type: (['confident', 'review', 'new'].includes(String(m.match_type))
-            ? m.match_type as MatchType
-            : 'review'),
-          internal_item_id: m.internal_item_id ? String(m.internal_item_id) || null : null,
-          confidence: typeof m.confidence === 'number' ? Math.min(1, Math.max(0, m.confidence)) : 0,
-          reason: String(m.reason ?? ''),
-          suggested_common_name: m.suggested_common_name ? String(m.suggested_common_name) || null : null,
+      try {
+        const response = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 8000,
+          system: systemPrompt,
+          tools: [MATCH_TOOL],
+          tool_choice: { type: 'tool', name: 'match_items' },
+          messages: [{ role: 'user', content: userContent }],
         })
+
+        const toolUse = response.content.find(b => b.type === 'tool_use') as
+          | { type: 'tool_use'; input: { matches: Array<Record<string, unknown>> } }
+          | undefined
+
+        if (!toolUse) {
+          console.error(`[matchItems] Chunk ${chunkIdx + 1}: no tool_use block`, JSON.stringify(response.content))
+          chunk.forEach(r => chunkMatches.push(fallbackMatch(r, 'AI matching failed — please review')))
+          return chunkMatches
+        }
+
+        const rawMatches = toolUse.input.matches ?? []
+        console.log(`[matchItems] Chunk ${chunkIdx + 1}: ${rawMatches.length} matches returned`)
+
+        const returnedIndexes = new Set(rawMatches.map(m => Number(m.row_index)))
+
+        for (const m of rawMatches) {
+          chunkMatches.push({
+            row_index: Number(m.row_index),
+            match_type: (['confident', 'review', 'new'].includes(String(m.match_type))
+              ? m.match_type as MatchType
+              : 'review'),
+            internal_item_id: m.internal_item_id ? String(m.internal_item_id) || null : null,
+            confidence: typeof m.confidence === 'number' ? Math.min(1, Math.max(0, m.confidence)) : 0,
+            reason: String(m.reason ?? ''),
+            suggested_common_name: m.suggested_common_name ? String(m.suggested_common_name) || null : null,
+          })
+        }
+
+        chunk.forEach(r => {
+          if (!returnedIndexes.has(r.row_index)) {
+            chunkMatches.push(fallbackMatch(r, 'Not returned by AI — please review'))
+          }
+        })
+
+      } catch (err) {
+        console.error(`[matchItems] Chunk ${chunkIdx + 1} error:`, err)
+        chunk.forEach(r => chunkMatches.push(fallbackMatch(r, 'AI matching error — please review')))
       }
 
-      // Fill in any rows Claude missed
-      chunk.forEach(r => {
-        if (!returnedIndexes.has(r.row_index)) {
-          allMatches.push(fallbackMatch(r, 'Not returned by AI — please review'))
-        }
-      })
+      return chunkMatches
+    })
+  )
 
-    } catch (err) {
-      console.error(`[matchItems] Chunk ${chunkIdx + 1} error:`, err)
-      chunk.forEach(r => allMatches.push(fallbackMatch(r, 'AI matching error — please review')))
-    }
-  }
-
-  return allMatches
+  return chunkResults.flat()
 }
 
 function fallbackMatch(r: ParsedRow, reason: string): ItemMatch {
