@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useMemo } from 'react'
 import type { GroupedRow, VendorSummary, CartItem } from '@/types/database'
 import { breakdownPrice, extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 
@@ -11,14 +12,18 @@ interface Props {
 }
 
 export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: Props) {
+  const [search, setSearch] = useState('')
   const cartRowIds = new Set(cartItems.map(c => c.rowId))
 
-  const vendorIds = vendors.map(v => v.vendor_id)
-  const rowsByVendor: Record<string, GroupedRow[]> = {}
-  vendorIds.forEach(id => { rowsByVendor[id] = [] })
-  rows.forEach(row => {
-    if (rowsByVendor[row.vendor_id]) rowsByVendor[row.vendor_id].push(row)
-  })
+  const filteredRows = useMemo(() => {
+    if (!search.trim()) return rows
+    const q = search.toLowerCase()
+    return rows.filter(r =>
+      r.item_name?.toLowerCase().includes(q) ||
+      r.vendor_item_number?.toLowerCase().includes(q)
+    )
+  }, [rows, search])
+
 
   if (vendors.length === 0) {
     return (
@@ -30,8 +35,32 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
 
   return (
     <div className="space-y-6">
+      {/* Search */}
+      <div className="relative">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-light-grey-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Search items across all vendors…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="input pl-9 w-full text-sm"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-light-grey-400 hover:text-primary"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {vendors.map(vendor => {
-        const vendorRows = rowsByVendor[vendor.vendor_id] ?? []
+        const vendorRows = (filteredRows).filter(r => r.vendor_id === vendor.vendor_id)
         const total = vendorRows.reduce((sum, r) => sum + r.price, 0)
         const hasUpload = !!vendor.upload_id
 

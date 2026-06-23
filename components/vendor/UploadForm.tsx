@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { VendorUpload, VendorUploadRow } from '@/types/database'
 
 interface ParseError {
@@ -26,6 +26,53 @@ interface Props {
   weekStart: string
   currentUpload: (VendorUpload & { rows: VendorUploadRow[] }) | null
   onUploadComplete: (result: UploadResult) => void
+}
+
+function UploadProgress({ active }: { active: boolean }) {
+  const [pct, setPct] = useState(0)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (active) {
+      setPct(0)
+      setDone(false)
+      // Climb to ~88% over ~25s, slowing down as it gets higher
+      const timer = setInterval(() => {
+        setPct(p => {
+          if (p >= 88) { clearInterval(timer); return 88 }
+          const step = p < 40 ? 2 : p < 70 ? 1 : 0.4
+          return Math.min(88, p + step)
+        })
+      }, 300)
+      return () => clearInterval(timer)
+    } else if (pct > 0) {
+      // Snap to 100% then fade out
+      setDone(false)
+      setPct(100)
+      const t = setTimeout(() => { setDone(true); setPct(0) }, 700)
+      return () => clearTimeout(t)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+
+  if (!active && pct === 0) return null
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between items-center">
+        <span className="text-xs font-medium text-gray-600">
+          {done ? 'Complete!' : active ? 'Reading file with AI…' : 'Finishing…'}
+        </span>
+        <span className="text-xs font-semibold text-primary tabular-nums">{Math.round(pct)}%</span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-300 ease-out"
+          style={{ width: `${pct}%`, background: 'var(--color-primary, #3e4b54)' }}
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function UploadForm({ weekStart, currentUpload, onUploadComplete }: Props) {
@@ -104,15 +151,11 @@ export default function UploadForm({ weekStart, currentUpload, onUploadComplete 
         />
 
         {uploading ? (
-          <div className="flex flex-col items-center gap-3">
-            <svg className="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <div className="flex flex-col items-center gap-2">
+            <svg className="w-8 h-8 text-primary opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
             </svg>
-            <div>
-              <p className="text-sm font-medium text-gray-700">Reading your file with AI…</p>
-              <p className="text-xs text-gray-400 mt-1">This may take a few seconds</p>
-            </div>
+            <p className="text-sm font-medium text-gray-600">Processing your order guide…</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -130,6 +173,9 @@ export default function UploadForm({ weekStart, currentUpload, onUploadComplete 
           </div>
         )}
       </div>
+
+      {/* Progress bar */}
+      <UploadProgress active={uploading} />
 
       {/* ── Fatal error ───────────────────────────────── */}
       {failure && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { ComparisonRow, VendorSummary, MatchGroup, CartItem } from '@/types/database'
 import { normalizePrice, breakdownPrice, extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 
@@ -55,6 +55,56 @@ const TD: React.CSSProperties = {
   fontSize: '0.82rem',
 }
 
+function AIMatchProgress() {
+  const [pct, setPct] = useState(0)
+
+  useEffect(() => {
+    setPct(0)
+    const timer = setInterval(() => {
+      setPct(p => {
+        if (p >= 88) { clearInterval(timer); return 88 }
+        const step = p < 30 ? 1.5 : p < 60 ? 0.8 : 0.3
+        return Math.min(88, p + step)
+      })
+    }, 400)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <div style={{
+      background: C.surface,
+      border: `1px solid ${C.border}`,
+      borderRadius: 12,
+      padding: '2.5rem 2rem',
+    }}>
+      <div style={{ maxWidth: 420, margin: '0 auto', textAlign: 'center' }}>
+        <p style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', color: C.primary, margin: '0 0 4px' }}>
+          Matching items with AI…
+        </p>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: '0.75rem', color: C.textMuted, margin: '0 0 1.5rem' }}>
+          Claude is reading all vendor uploads and grouping similar products side-by-side.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontFamily: 'var(--font-sans)', fontSize: '0.72rem', color: C.textMuted }}>Analysing categories…</span>
+          <span style={{ fontFamily: 'var(--font-sans)', fontSize: '0.72rem', fontWeight: 600, color: C.primary }}>{Math.round(pct)}%</span>
+        </div>
+        <div style={{ width: '100%', background: C.beige, borderRadius: 4, height: 8, overflow: 'hidden' }}>
+          <div style={{
+            width: `${pct}%`,
+            height: '100%',
+            background: C.primary,
+            borderRadius: 4,
+            transition: 'width 0.4s ease-out',
+          }} />
+        </div>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: '0.7rem', color: C.textMuted, marginTop: '1rem' }}>
+          This usually takes 25–45 seconds depending on catalog size.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   rows: ComparisonRow[]
   vendors: VendorSummary[]
@@ -99,25 +149,7 @@ export default function ViewComparison({ rows, vendors, selectedWeek, matchGroup
 
   // ── AI match view ────────────────────────────────────────────
   if (matching) {
-    return (
-      <div style={{ padding: '3rem', textAlign: 'center' }}>
-        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-          <svg style={{ width: 36, height: 36, animation: 'spin 1s linear infinite', color: C.primary }} fill="none" viewBox="0 0 24 24">
-            <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <div>
-            <p style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', color: C.primary, margin: 0 }}>
-              Matching items with AI…
-            </p>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: '0.75rem', color: C.textMuted, marginTop: 6 }}>
-              Claude is reading all uploaded items and grouping similar products across vendors.
-            </p>
-          </div>
-        </div>
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-      </div>
-    )
+    return <AIMatchProgress />
   }
 
   if (matchGroups !== null) {

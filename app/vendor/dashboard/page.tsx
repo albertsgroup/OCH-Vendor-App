@@ -127,7 +127,6 @@ export default function VendorDashboard() {
                   <th className="th w-32">Your Item #</th>
                   <th className="th">Description</th>
                   <th className="th w-28 text-right">Price</th>
-                  <th className="th w-28 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -140,21 +139,12 @@ export default function VendorDashboard() {
                     <td className="td text-right tabular-nums font-semibold text-gray-800">
                       ${Number(row.price).toFixed(2)}
                     </td>
-                    <td className="td text-center">
-                      {row.internal_item_id
-                        ? <span className="badge-success">Matched</span>
-                        : <span className="badge-gray">Pending</span>
-                      }
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between text-xs text-gray-500">
-            <span>
-              {upload.rows.filter(r => r.internal_item_id).length} of {upload.rows.length} matched to our catalogue
-            </span>
+          <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end text-xs text-gray-500">
             <span>
               Total: <strong className="text-gray-700">
                 ${upload.rows.reduce((sum, r) => sum + Number(r.price), 0).toFixed(2)}

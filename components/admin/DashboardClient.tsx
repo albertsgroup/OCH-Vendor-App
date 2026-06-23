@@ -33,8 +33,22 @@ export default function DashboardClient({
   const [view, setView] = useState<ViewMode>('grouped')
   const [, startTransition] = useTransition()
 
-  // Cart — persists across tab switches
+  // Cart — persists across tab switches AND sign-out via localStorage
   const [cartItems, setCartItems] = useState<CartItem[]>([])
+
+  useEffect(() => {
+    const raw = localStorage.getItem(`och_cart_${selectedWeek}`)
+    if (!raw) return
+    try { setCartItems(JSON.parse(raw)) } catch {}
+  }, [selectedWeek])
+
+  useEffect(() => {
+    if (cartItems.length === 0) {
+      localStorage.removeItem(`och_cart_${selectedWeek}`)
+    } else {
+      localStorage.setItem(`och_cart_${selectedWeek}`, JSON.stringify(cartItems))
+    }
+  }, [cartItems, selectedWeek])
 
   // AI match — persists across tab switches and sign out/in via localStorage
   const [matchGroups, setMatchGroups] = useState<MatchGroup[] | null>(null)
@@ -84,6 +98,7 @@ export default function DashboardClient({
 
   function clearCart() {
     setCartItems([])
+    localStorage.removeItem(`och_cart_${selectedWeek}`)
   }
 
   const cartCount = cartItems.reduce((sum, i) => sum + i.quantity, 0)
