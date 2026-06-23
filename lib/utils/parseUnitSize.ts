@@ -100,3 +100,119 @@ export function normalizePrice(price: number, unitSize: string | null | undefine
 
   return null
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full 3-level price breakdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PriceBreakdown {
+  /** Primary — $/lb or $/ct */
+  perUnit: number
+  unitLabel: '$/lb' | '$/ct'
+  /** Total weight (lb) or count in the full case */
+  totalInCase: number
+
+  /** Secondary — only present when the case contains multiple packs */
+  packCount: number | null
+  packSize: number | null
+  packSizeUnit: string | null  // e.g. 'lb', 'oz', 'gal', 'ml'
+  perPack: number | null       // case price ÷ packCount
+}
+
+/**
+ * Full breakdown for a case price given a unit-size string.
+ *
+ * Examples:
+ *   breakdownPrice(50, "4/5LB")   → perUnit=$2.50/lb, packCount=4, perPack=$12.50, packSize=5 lb
+ *   breakdownPrice(25, "10LB")    → perUnit=$2.50/lb, no pack breakdown
+ *   breakdownPrice(40, "4/1GAL")  → perUnit=$10/ct,   packCount=4, perPack=$10, packSize=1 gal
+ *   breakdownPrice(80, "100CT")   → perUnit=$0.80/ct, no pack breakdown
+ */
+export function breakdownPrice(price: number, unitSize: string | null | undefined): PriceBreakdown | null {
+  if (!unitSize || price <= 0) return null
+  const s = unitSize.trim().toUpperCase()
+
+  const WEIGHT_RE = '(LB|LBS|#|OZ|OUNCE|OUNCES|G|GRAM|GRAMS|KG)'
+
+  // ── Multi-pack weight: QTY/SIZE UNIT  e.g. "4/5LB", "12/7 OZ" ──
+  const mw = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*\\/\\s*(\\d+(?:\\.\\d+)?)\\s*${WEIGHT_RE}`))
+  if (mw) {
+    const packCount  = parseFloat(mw[1])
+    const packSize   = parseFloat(mw[2])
+    const rawUnit    = mw[3]
+    const lbsPerPack = toOounds(packSize, rawUnit)
+    if (!lbsPerPack || lbsPerPack <= 0 || packCount <= 0) return null
+    return {
+      perUnit:      price / (packCount * lbsPerPack),
+      unitLabel:    '$/lb',
+      totalInCase:  packCount * lbsPerPack,
+      packCount,
+      packSize,
+      packSizeUnit: normaliseUnit(rawUnit),
+      perPack:      price / packCount,
+    }
+  }
+
+  // ── Single-pack weight: WEIGHT UNIT  e.g. "10LB", "5 LB", "16OZ" ──
+  const sw = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*${WEIGHT_RE}\\b`))
+  if (sw) {
+    const weight = parseFloat(sw[1])
+    const lbs    = toOounds(weight, sw[2])
+    if (!lbs || lbs <= 0) return null
+    return {
+      perUnit: price / lbs, unitLabel: '$/lb', totalInCase: lbs,
+      packCount: null, packSize: null, packSizeUnit: null, perPack: null,
+    }
+  }
+
+  // ── Multi-pack non-weight: QTY/SIZE UNIT  e.g. "4/1GAL", "6/500ML" ──
+  const mc = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*([A-Z]+)?/)
+  if (mc) {
+    const qty  = parseFloat(mc[1])
+    const size = parseFloat(mc[2])
+    const unit = (mc[3] ?? '').toLowerCase()
+    if (qty > 0) {
+      return {
+        perUnit: price / qty, unitLabel: '$/ct', totalInCase: qty,
+        packCount: qty,
+        packSize:  size || null,
+        packSizeUnit: unit || null,
+        perPack: price / qty,
+      }
+    }
+  }
+
+  // ── Bare count: "100CT", "24 EA", "60 PC" ──
+  const bc = s.match(/^(\d+(?:\.\d+)?)\s*(CT|EA|PC|PCS|EACH|COUNT)\b/)
+  if (bc) {
+    const count = parseFloat(bc[1])
+    if (count > 0) {
+      return {
+        perUnit: price / count, unitLabel: '$/ct', totalInCase: count,
+        packCount: null, packSize: null, packSizeUnit: null, perPack: null,
+      }
+    }
+  }
+
+  // ── Slash with generic suffix: "60/CS", "24/CS" ──
+  const sc = s.match(/^(\d+(?:\.\d+)?)\s*\//)
+  if (sc) {
+    const qty = parseFloat(sc[1])
+    if (qty > 0) {
+      return {
+        perUnit: price / qty, unitLabel: '$/ct', totalInCase: qty,
+        packCount: null, packSize: null, packSizeUnit: null, perPack: null,
+      }
+    }
+  }
+
+  return null
+}
+
+function normaliseUnit(raw: string): string {
+  const u = raw.toUpperCase()
+  if (u === '#' || u === 'LBS') return 'lb'
+  if (u === 'OUNCE' || u === 'OUNCES') return 'oz'
+  if (u === 'GRAM' || u === 'GRAMS') return 'g'
+  return raw.toLowerCase()
+}

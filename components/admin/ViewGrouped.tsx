@@ -1,7 +1,7 @@
 'use client'
 
 import type { GroupedRow, VendorSummary, CartItem } from '@/types/database'
-import { normalizePrice } from '@/lib/utils/parseUnitSize'
+import { breakdownPrice } from '@/lib/utils/parseUnitSize'
 
 interface Props {
   rows: GroupedRow[]
@@ -75,7 +75,7 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                   </thead>
                   <tbody className="divide-y divide-light-grey-100">
                     {vendorRows.map(row => {
-                      const norm = normalizePrice(row.price, row.unit_size)
+                      const bd = breakdownPrice(row.price, row.unit_size)
                       const inCart = cartRowIds.has(row.id)
 
                       return (
@@ -95,16 +95,27 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                             ${row.price.toFixed(2)}
                           </td>
                           <td className="td text-right tabular-nums">
-                            {norm !== null ? (
-                              <div>
-                                <span className="text-primary font-medium">${norm.value.toFixed(2)}</span>
-                                <div className="text-xs text-light-grey-400 mt-0.5">
-                                  <span className={`inline-block text-[10px] font-semibold px-1 py-px rounded mr-1 ${norm.label === '$/lb' ? 'bg-secondary-100 text-primary-300' : 'bg-amber-50 text-amber-700'}`}>
-                                    {norm.label}
+                            {bd !== null ? (
+                              <div className="space-y-0.5">
+                                {/* Primary: $/lb or $/ct */}
+                                <div className="flex items-baseline justify-end gap-1">
+                                  <span className="text-primary font-semibold">${bd.perUnit.toFixed(2)}</span>
+                                  <span className={`text-[10px] font-semibold px-1 py-px rounded ${bd.unitLabel === '$/lb' ? 'bg-secondary-100 text-primary-300' : 'bg-amber-50 text-amber-700'}`}>
+                                    {bd.unitLabel}
                                   </span>
-                                  {norm.label === '$/lb'
-                                    ? `${norm.total % 1 === 0 ? norm.total : norm.total.toFixed(1)} lb case`
-                                    : `${norm.total} units/case`}
+                                </div>
+                                {/* Secondary: $/pack breakdown (only when multi-pack) */}
+                                {bd.packCount !== null && bd.perPack !== null && bd.perPack !== bd.perUnit && (
+                                  <div className="text-xs text-light-grey-500 text-right">
+                                    ${bd.perPack.toFixed(2)}/pack
+                                    {bd.packSize && bd.packSizeUnit ? ` · ${bd.packSize % 1 === 0 ? bd.packSize : bd.packSize.toFixed(1)} ${bd.packSizeUnit} each` : ''}
+                                  </div>
+                                )}
+                                {/* Tertiary: case totals */}
+                                <div className="text-[11px] text-light-grey-300 text-right">
+                                  {bd.unitLabel === '$/lb'
+                                    ? `${bd.totalInCase % 1 === 0 ? bd.totalInCase : bd.totalInCase.toFixed(1)} lb case`
+                                    : `${bd.totalInCase} units/case`}
                                 </div>
                               </div>
                             ) : (

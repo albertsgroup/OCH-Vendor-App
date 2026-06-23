@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { ComparisonRow, VendorSummary, MatchGroup, CartItem } from '@/types/database'
-import { normalizePrice } from '@/lib/utils/parseUnitSize'
+import { normalizePrice, breakdownPrice } from '@/lib/utils/parseUnitSize'
 
 const C = {
   bg:          '#fdfcfa',
@@ -381,11 +381,13 @@ function AIMatchView({
                       )
                     }
                     const norm = normById[vi.rowId]
+                    const bd   = breakdownPrice(vi.price, vi.unitSize)
                     const isLowest = canCompare && norm !== null && norm.value === minNorm
 
                     return (
                       <td key={v.vendor_id} style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums', borderRight: i < vendors.length - 1 ? `1px solid ${C.border}` : undefined }}>
                         <div>
+                          {/* Primary: $/lb or $/ct */}
                           {norm ? (
                             isLowest ? (
                               <span style={{ display: 'inline-block', background: C.lowestBg, color: C.lowestText, border: `1px solid ${C.lowestBorder}`, borderRadius: 5, padding: '2px 9px', fontWeight: 600, fontSize: '0.84rem' }}>
@@ -401,11 +403,21 @@ function AIMatchView({
                               ${vi.price.toFixed(2)}
                             </span>
                           )}
-                          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 3, lineHeight: 1.4 }}>
-                            {norm
-                              ? norm.label === '$/lb'
-                                ? `$${vi.price.toFixed(2)} · ${norm.total % 1 === 0 ? norm.total : norm.total.toFixed(1)} lb case`
-                                : `$${vi.price.toFixed(2)} · ${norm.total} units`
+                          {/* Secondary: $/pack (only when multi-pack structure) */}
+                          {bd !== null && bd.packCount !== null && bd.perPack !== null && bd.perPack !== norm?.value && (
+                            <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 2, lineHeight: 1.4 }}>
+                              ${bd.perPack.toFixed(2)}/pack
+                              {bd.packSize && bd.packSizeUnit
+                                ? ` · ${bd.packSize % 1 === 0 ? bd.packSize : bd.packSize.toFixed(1)} ${bd.packSizeUnit} each`
+                                : ''}
+                            </div>
+                          )}
+                          {/* Tertiary: case price + totals */}
+                          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 2, lineHeight: 1.4 }}>
+                            {bd !== null
+                              ? bd.unitLabel === '$/lb'
+                                ? `$${vi.price.toFixed(2)} case · ${bd.totalInCase % 1 === 0 ? bd.totalInCase : bd.totalInCase.toFixed(1)} lb`
+                                : `$${vi.price.toFixed(2)} case · ${bd.totalInCase} units`
                               : `$${vi.price.toFixed(2)} case${vi.unitSize ? ` · ${vi.unitSize}` : ''}`
                             }
                           </div>

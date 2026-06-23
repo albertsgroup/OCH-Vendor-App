@@ -94,13 +94,16 @@ async function extractRawRows(
 interface ColumnIndices {
   itemNumber: number  // -1 if absent
   itemName: number
-  unitSize: number    // -1 if absent
+  unitSize: number    // -1 if absent (combined column)
   price: number
+  pack: number        // -1 if absent (separate pack-count column)
+  packSize: number    // -1 if absent (separate size-per-pack column)
+  packUnit: number    // -1 if absent (separate unit column)
 }
 
 const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
   name: 'detect_columns',
-  description: 'Identify which spreadsheet columns contain the vendor item number, item name, unit size, and price.',
+  description: 'Identify which spreadsheet columns contain the vendor item number, item name, pack/unit size, and price. Some vendors (like Sysco) use separate Pack, Size, and Unit columns instead of a single unit-size column.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -119,11 +122,23 @@ const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
       },
       unit_size_col: {
         type: 'string',
-        description: 'Exact header text for the pack/unit size column. Empty string if absent.',
+        description: 'Exact header text for a combined pack/unit-size column (e.g. "Pack Size", "UOM", "Unit"). Empty string if the file uses separate Pack/Size/Unit columns instead.',
+      },
+      pack_col: {
+        type: 'string',
+        description: 'Exact header for number of packs per case (e.g. "Pack", "Ct", "Qty", "Count"). Empty string if absent or if already covered by unit_size_col.',
+      },
+      pack_size_col: {
+        type: 'string',
+        description: 'Exact header for weight/size per individual pack (e.g. "Size", "Wt", "Weight", "Each Size", "Each Wt"). Empty string if absent.',
+      },
+      pack_unit_col: {
+        type: 'string',
+        description: 'Exact header for the unit of measure per pack (e.g. "Unit", "UOM", "UofM", "Measure"). Empty string if absent.',
       },
       price_col: {
         type: 'string',
-        description: 'Exact header text for the price column. If multiple price columns exist, pick "Your Price" or "Net Price" over "List Price".',
+        description: 'Exact header text for the price column. If multiple price columns exist, pick "Your Price", "Net Price", or "Case Price" over "List Price".',
       },
     },
     required: ['item_name_col', 'price_col'],
@@ -149,11 +164,17 @@ async function detectColumnIndices(
     model: 'claude-haiku-4-5',
     max_tokens: 500,
     system: `You identify columns in vendor order guide spreadsheets for a restaurant.
+
+Some vendors (like Sysco, US Foods) use SEPARATE columns for pack count, pack size, and unit instead of a single combined unit-size column. Detect both patterns.
+
 Column meanings:
-- ITEM NUMBER: vendor's product code/SKU. Headers like "Item #", "SKU", "Cat #", "Code". May be absent.
-- ITEM NAME: product description. Headers like "Description", "Item Description", "Product", "Name". Always present.
-- UNIT SIZE: pack size. Headers like "Pack", "Pack Size", "Size", "UOM", "Unit". Values like "1lb", "12/case". May be absent.
-- PRICE: what the restaurant pays. Headers like "Price", "Unit Price", "Your Price", "Net Price", "Each". Always present.`,
+- ITEM NUMBER: vendor SKU. Headers: "Item #", "SKU", "Cat #", "Code". May be absent.
+- ITEM NAME: product description. Headers: "Description", "Item Description", "Product", "Name". Always present.
+- UNIT SIZE (combined): e.g. "Pack Size", "UOM", "Unit" — a single column like "4/5LB" or "12/7OZ". Use this if present.
+- PACK (separate): number of packs per case. Headers: "Pack", "Ct", "Qty", "Count". Use when size is split across columns.
+- PACK SIZE (separate): weight or size per pack. Headers: "Size", "Wt", "Weight", "Each Size", "Each Wt".
+- PACK UNIT (separate): unit of the pack size. Headers: "Unit", "UOM", "UofM", "Measure" (e.g. LB, OZ, GAL).
+- PRICE: what the restaurant pays per case. Headers: "Price", "Unit Price", "Your Price", "Net Price", "Case Price", "Each". If multiple price columns, pick "Your Price" or "Net Price" over "List Price". Always present.`,
     tools: [DETECT_COLUMNS_TOOL],
     tool_choice: { type: 'tool', name: 'detect_columns' },
     messages: [{
@@ -196,6 +217,9 @@ Column meanings:
     itemName:   findIndex(result.item_name_col),
     unitSize:   findIndex(result.unit_size_col),
     price:      findIndex(result.price_col),
+    pack:       findIndex(result.pack_col),
+    packSize:   findIndex(result.pack_size_col),
+    packUnit:   findIndex(result.pack_unit_col),
   }
 
   if (indices.itemName < 0 || indices.price < 0) {
@@ -213,6 +237,9 @@ Column meanings:
     item_number: String(result.item_number_col ?? ''),
     item_name:   String(result.item_name_col ?? ''),
     unit_size:   String(result.unit_size_col ?? ''),
+    pack:        String(result.pack_col ?? ''),
+    pack_size:   String(result.pack_size_col ?? ''),
+    pack_unit:   String(result.pack_unit_col ?? ''),
     price:       String(result.price_col ?? ''),
   }
 
@@ -250,11 +277,28 @@ function parseRowsLocally(
       return
     }
 
+    const vendorItemNumber = indices.itemNumber >= 0 ? (row[indices.itemNumber] ?? '').trim() || null : null
+
+    // Build unit_size: prefer combined column; fall back to assembling from separate pack/size/unit columns
+    let unitSize = indices.unitSize >= 0 ? (row[indices.unitSize] ?? '').trim() || null : null
+    if (!unitSize && (indices.pack >= 0 || indices.packSize >= 0)) {
+      const packVal     = indices.pack     >= 0 ? (row[indices.pack]     ?? '').trim() : ''
+      const packSizeVal = indices.packSize >= 0 ? (row[indices.packSize] ?? '').trim() : ''
+      const packUnitVal = indices.packUnit >= 0 ? (row[indices.packUnit] ?? '').trim() : ''
+      if (packVal && packSizeVal && packUnitVal) {
+        unitSize = `${packVal}/${packSizeVal}${packUnitVal}`
+      } else if (packVal && packSizeVal) {
+        unitSize = `${packVal}/${packSizeVal}`
+      } else if (packVal) {
+        unitSize = `${packVal} CT`
+      }
+    }
+
     parsed.push({
       row_index: rowNum,
-      vendor_item_number: indices.itemNumber >= 0 ? (row[indices.itemNumber] ?? '').trim() || null : null,
+      vendor_item_number: vendorItemNumber,
       item_name: itemName,
-      unit_size: indices.unitSize >= 0 ? (row[indices.unitSize] ?? '').trim() || null : null,
+      unit_size: unitSize,
       price,
     })
   })
