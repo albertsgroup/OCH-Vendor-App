@@ -108,24 +108,12 @@ async function handleAIMatch(req: NextRequest) {
 
   const vendorList = vendorIds.map(id => vendorNameById[id]).join(', ')
 
-  // Use short integer indices instead of UUIDs in the prompt — reduces output tokens ~10x
-  const idByIndex: string[] = rows.map(r => r.id)  // index → real UUID
-  const itemsText = rows
-    .map((r, idx) => {
-      const v = rowById[r.id]
-      const vendor = v.vendorName.slice(0, 12)  // truncate to save tokens
-      const parts = [`${idx}`, `[${vendor}]`, `"${v.itemName}"`]
-      if (v.unitSize) parts.push(v.unitSize)
-      return parts.join(' | ')
-    })
-    .join('\n')
+  // idByIndex[globalIdx] → UUID — shared across all chunks
+  const idByIndex: string[] = rows.map(r => r.id)
 
-  let response
-  try {
-    response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 16000,
-      system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
+  const CHUNK_SIZE = 150  // items per AI call — keeps output well under 16K tokens
+
+  const systemPrompt = `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
 Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
 
@@ -135,41 +123,76 @@ Rules:
 - If only one vendor carries something, it still gets its own group (with one rowId)
 - Every single index in the input MUST appear in exactly one group — do not skip any
 - rowIds in output are the INTEGER INDICES from the input (not UUIDs)
-- Vendors in this upload: ${vendorList}`,
-      tools: [GROUP_TOOL],
-      tool_choice: { type: 'tool', name: 'group_vendor_items' },
-      messages: [{
-        role: 'user',
-        content: `Group these ${rows.length} items from this week's uploads:\n\n${itemsText}`,
-      }],
+- Vendors in this upload: ${vendorList}`
+
+  // Split into alphabetically-ordered chunks so similar items from different vendors
+  // (which sort nearby) appear in the same chunk and get matched.
+  const chunks: typeof rows[] = []
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    chunks.push(rows.slice(i, i + CHUNK_SIZE))
+  }
+
+  type RawGroup = { commonName: string; rowIds: (string | number)[] }
+
+  // Process all chunks in parallel
+  const chunkGroupsArray = await Promise.all(
+    chunks.map(async (chunk, chunkIdx) => {
+      const offset = chunkIdx * CHUNK_SIZE
+      const itemsText = chunk
+        .map((r, localIdx) => {
+          const globalIdx = offset + localIdx
+          const v = rowById[r.id]
+          const vendor = v.vendorName.slice(0, 12)
+          const parts = [`${globalIdx}`, `[${vendor}]`, `"${v.itemName}"`]
+          if (v.unitSize) parts.push(v.unitSize)
+          return parts.join(' | ')
+        })
+        .join('\n')
+
+      const fallback = (): RawGroup[] =>
+        chunk.map((r, localIdx) => ({
+          commonName: rowById[r.id]?.itemName ?? '—',
+          rowIds: [offset + localIdx],
+        }))
+
+      let chunkResp
+      try {
+        chunkResp = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 8000,
+          system: systemPrompt,
+          tools: [GROUP_TOOL],
+          tool_choice: { type: 'tool', name: 'group_vendor_items' },
+          messages: [{
+            role: 'user',
+            content: `Group these ${chunk.length} items (chunk ${chunkIdx + 1}/${chunks.length}):\n\n${itemsText}`,
+          }],
+        })
+      } catch (err) {
+        console.error(`[ai-match] Chunk ${chunkIdx + 1} API error:`, err instanceof Error ? err.message : err)
+        return fallback()
+      }
+
+      if (chunkResp.stop_reason === 'max_tokens') {
+        console.error(`[ai-match] Chunk ${chunkIdx + 1} truncated`)
+        return fallback()
+      }
+
+      const toolUse = chunkResp.content.find(b => b.type === 'tool_use') as
+        | { type: 'tool_use'; input: { groups: RawGroup[] } }
+        | undefined
+
+      if (!toolUse?.input?.groups || !Array.isArray(toolUse.input.groups)) {
+        console.error(`[ai-match] Chunk ${chunkIdx + 1} malformed:`, JSON.stringify(chunkResp.content).slice(0, 500))
+        return fallback()
+      }
+
+      console.log(`[ai-match] Chunk ${chunkIdx + 1}/${chunks.length}: ${toolUse.input.groups.length} groups from ${chunk.length} items`)
+      return toolUse.input.groups
     })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error('[ai-match] Anthropic API error:', message)
-    return NextResponse.json({ error: `AI API error: ${message}` }, { status: 500 })
-  }
+  )
 
-  const toolUse = response.content.find(b => b.type === 'tool_use') as
-    | { type: 'tool_use'; input: { groups: Array<{ commonName: string; rowIds: string[] }> } }
-    | undefined
-
-  if (!toolUse) {
-    return NextResponse.json({ error: 'AI did not return groups' }, { status: 500 })
-  }
-
-  if (response.stop_reason === 'max_tokens') {
-    console.error('[ai-match] Response truncated — output exceeded max_tokens')
-    return NextResponse.json({ error: `AI response was truncated (${rows.length} items may be too many for one pass). Try again or reduce the number of vendors.` }, { status: 500 })
-  }
-
-  const rawGroups = toolUse.input?.groups
-  if (!rawGroups || !Array.isArray(rawGroups)) {
-    console.error('[ai-match] Malformed tool input:', JSON.stringify(toolUse.input).slice(0, 1000))
-    return NextResponse.json({
-      error: 'AI returned malformed groups',
-      debug: { stopReason: response.stop_reason, inputKeys: Object.keys(toolUse.input ?? {}), inputSample: JSON.stringify(toolUse.input).slice(0, 500) },
-    }, { status: 500 })
-  }
+  const rawGroups = chunkGroupsArray.flat()
 
   // Claude returns integer indices; map back to real UUIDs then look up vendor items
   const groups: MatchGroup[] = rawGroups
