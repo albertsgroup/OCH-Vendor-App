@@ -3,25 +3,109 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import Anthropic from '@anthropic-ai/sdk'
 import type { MatchGroup, MatchVendorItem } from '@/types/database'
 
+// ── Category keyword map ──────────────────────────────────────────────────────
+// Items are assigned to categories so all vendors' items in the same category
+// land in the same AI call — preventing cross-vendor matches from being split
+// across alphabetical chunks.
+const CATEGORY_KEYWORDS: [string, string[]][] = [
+  ['Seafood', [
+    'FISH', 'SALMON', 'TUNA', 'SHRIMP', 'LOBSTER', 'CRABMEAT', 'CRAB',
+    'SCALLOP', 'HADDOCK', 'COD', 'TILAPIA', 'CLAM', 'OYSTER', 'SQUID',
+    'CALAMARI', 'HALIBUT', 'FLOUNDER', 'CATFISH', 'POLLOCK', 'MAHI',
+    'SWORDFISH', 'BASS', 'TROUT', 'ICELANDIC', 'NORTH SHORE', 'PORTICO',
+    'SEAFOOD', 'ANCHOV', 'GROUPER', 'SNAPPER',
+  ]],
+  ['Poultry', [
+    'CHICKEN', 'TURKEY', 'DUCK', 'CORNISH',
+  ]],
+  ['Beef & Pork', [
+    'BEEF', 'PORK', 'BRISKET', 'RIBS', 'BACON', ' HAM', 'SAUSAGE',
+    'HOT DOG', 'LAMB', 'VEAL', 'PROSCIUTTO', 'SALAMI', 'PEPPERONI',
+    'BRATWURST', 'CHORIZO', 'SEABOARD', 'PHILLY STEAK',
+  ]],
+  ['Dairy & Cheese', [
+    'CHEESE', 'BUTTER', 'MOZZARELLA', 'CHEDDAR', 'PROVOLONE', 'PARMESAN',
+    'SWISS', 'BRIE', 'GOUDA', 'RICOTTA', 'MILK', 'SOUR CREAM', 'CREAM CHEESE',
+    'BUTTERMILK', 'GALBANI', 'SORRENTO', 'CABOT', 'COOPER', 'BELGIOIOSO',
+    'ALOUETTE', 'MUENSTER', 'COLBY', 'MONTEREY JACK', 'PEPPER JACK',
+    'BLUE CHEESE', 'WHIPPED CREAM', 'HALF AND HALF',
+  ]],
+  ['Eggs', ['EGG', ' DOZ']],
+  ['Produce & Fruit', [
+    'LETTUCE', 'TOMATO', 'ONION', 'MUSHROOM', 'PEPPER', 'BROCCOLI',
+    'GARLIC', 'BASIL', 'PARSLEY', 'CILANTRO', 'THYME', 'ROSEMARY',
+    'KALE', 'SPINACH', 'ARUGULA', 'AVOCADO', 'CUCUMBER',
+    'ZUCCHINI', 'EGGPLANT', 'CELERY', 'CARROT', 'CABBAGE', 'SAUERKRAUT',
+    'STRAWBERR', 'BLUEBERR', 'RASPBERRY', 'BLACKBERR', 'CHERRY',
+    'LEMON', 'LIME', 'APPLE', 'ORANGE', 'MANGO', 'PINEAPPLE',
+    'FRUIT', 'VEGETABLE', 'NORMANDY BLEND', 'HERB',
+  ]],
+  ['Frozen & Breaded', [
+    'FRENCH FRIES', 'ONION RING', 'HASH BROWN', 'TATER TOT',
+    'MOZZARELLA STICK', 'MOZZARELLA TRIANGLE', 'EGG ROLL WRAPPER',
+    'BREADED', 'NUGGET', 'MEATBALL', 'GNOCCHI', 'RAVIOLI', 'PIEROGI',
+    'WONTON', 'POTATO CHIP', 'IQF',
+  ]],
+  ['Bakery & Bread', [
+    'ROLL', 'BREAD', 'BUN', 'BISCUIT', 'PIE', 'CAKE', 'CROISSANT', 'BAGEL',
+    'MUFFIN', 'BRIOCHE', 'PRETZEL', 'SLIDER', 'HAMBURGER ROLL', 'HOAGIE',
+    'POTATO ROLL', 'RYE', 'SOURDOUGH', 'CIABATTA', 'NAAN', 'PITA',
+    'PIZZA CRUS', 'TEXAS TOAST', 'STONEFIRE', 'CHEESECAKE',
+    'MARKET SQUARE', "MARTIN'S", 'MARTINS', 'COSTANZO', 'LE PAN', 'BRIDGFORD',
+    'ANNABELLS',
+  ]],
+  ['Pasta & Dry Goods', [
+    'PASTA', 'CAVATAPPI', 'RIGATONI', 'PENNE', 'SPAGHETTI', 'FETTUCCINE',
+    'LINGUINE', 'FARFALLE', 'ORZO', 'SAN MARCO',
+    'RICE', 'FLOUR', 'OIL', 'VINEGAR', 'HOT SAUCE', 'KETCHUP', 'MUSTARD',
+    'MAYONNAISE', 'RANCH', 'SPICE', 'SEASONING', 'BREADCRUMB', 'PANKO',
+    'HONEY', 'SYRUP', 'BLAZIN',
+  ]],
+  ['Supplies & Other', [
+    'NAPKIN', 'GLOVE', 'CLEANING', 'SOAP', 'TOWEL', 'STRAW', 'UTENSIL',
+    'FORK', 'KNIFE', 'SPOON', 'TRAY', 'DEPOSIT', 'CRATE',
+  ]],
+]
+
+const MAX_ITEMS_PER_CALL = 150
+
+function categorizeItem(itemName: string): string {
+  const upper = itemName.toUpperCase()
+  for (const [category, keywords] of CATEGORY_KEYWORDS) {
+    if (keywords.some(kw => upper.includes(kw))) return category
+  }
+  return 'Other'
+}
+
+// ── Tool schema ───────────────────────────────────────────────────────────────
 const GROUP_TOOL: Anthropic.Tool = {
   name: 'group_vendor_items',
-  description: 'Group similar food/beverage items from different vendors into matched rows.',
+  description: 'Group similar food/beverage supply items from different vendors into matched rows.',
   input_schema: {
     type: 'object' as const,
     properties: {
       groups: {
         type: 'array',
-        description: 'Each group represents one product. Single-vendor items are still a group (one rowId). Every input row ID must appear in exactly one group.',
+        description: 'Each group = one product. Every input index MUST appear in exactly one group.',
         items: {
           type: 'object',
           properties: {
             commonName: {
               type: 'string',
-              description: 'Short, clean, standardized product name. E.g. "Shredded Mozzarella", "Cream Cheese", "Cayenne Hot Sauce 4/1gal"',
+              description: 'Short, professional product name including key specs. E.g. "Shredded Whole Milk Mozzarella 6/5LB", "Haddock Fillet Skinless 10-12oz 10LB". Not vendor jargon.',
+            },
+            confidence: {
+              type: 'string',
+              enum: ['high', 'medium', 'low'],
+              description: 'high = same brand + same spec; medium = same spec different brand; low = plausible substitute only',
+            },
+            matchReason: {
+              type: 'string',
+              description: 'Only for groups with 2+ vendors. One line: e.g. "Same brand (Galbani) · same pack (6/5LB)" or "Both 10-12oz skinless haddock · 10LB case"',
             },
             rowIds: {
               type: 'array',
-              description: 'Integer indices of items belonging to this group (one per vendor max). Use the number at the start of each input line.',
+              description: 'Integer indices of items in this group (one per vendor max). Use the number at the start of each input line.',
               items: { type: 'number' },
             },
           },
@@ -33,6 +117,7 @@ const GROUP_TOOL: Anthropic.Tool = {
   },
 }
 
+// ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     return await handleAIMatch(req)
@@ -49,17 +134,13 @@ async function handleAIMatch(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  // Fetch uploads for this week
   const { data: uploads } = await admin
     .from('vendor_uploads')
     .select('id, vendor_id')
     .eq('week_start', week)
 
-  if (!uploads || uploads.length === 0) {
-    return NextResponse.json({ groups: [] })
-  }
+  if (!uploads || uploads.length === 0) return NextResponse.json({ groups: [] })
 
-  // Fetch vendor names
   const vendorIds = [...new Set(uploads.map(u => u.vendor_id))]
   const { data: profiles } = await admin
     .from('profiles')
@@ -72,19 +153,14 @@ async function handleAIMatch(req: NextRequest) {
   const vendorByUpload: Record<string, string> = {}
   uploads.forEach(u => { vendorByUpload[u.id] = u.vendor_id })
 
-  // Fetch all upload rows
   const uploadIds = uploads.map(u => u.id)
   const { data: rows } = await admin
     .from('vendor_upload_rows')
     .select('id, upload_id, vendor_item_number, item_name, unit_size, price')
     .in('upload_id', uploadIds)
-    .order('item_name')
 
-  if (!rows || rows.length === 0) {
-    return NextResponse.json({ groups: [] })
-  }
+  if (!rows || rows.length === 0) return NextResponse.json({ groups: [] })
 
-  // Build a row lookup keyed by row ID
   const rowById: Record<string, MatchVendorItem> = {}
   rows.forEach(r => {
     const vendorId = vendorByUpload[r.upload_id]
@@ -100,101 +176,124 @@ async function handleAIMatch(req: NextRequest) {
   })
 
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return NextResponse.json({ error: 'AI not configured' }, { status: 500 })
-  }
+  if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 500 })
 
   const client = new Anthropic({ apiKey })
-
   const vendorList = vendorIds.map(id => vendorNameById[id]).join(', ')
 
-  // idByIndex[globalIdx] → UUID — shared across all chunks
-  const idByIndex: string[] = rows.map(r => r.id)
+  // ── Assign each row to a category ──────────────────────────────────────────
+  const byCategory: Record<string, typeof rows> = {}
+  rows.forEach(r => {
+    const cat = categorizeItem(rowById[r.id]?.itemName ?? '')
+    if (!byCategory[cat]) byCategory[cat] = []
+    byCategory[cat].push(r)
+  })
 
-  const CHUNK_SIZE = 150  // items per AI call — keeps output well under 16K tokens
+  // ── Build call batches (one per category, split if > MAX_ITEMS_PER_CALL) ───
+  // idByIndex[globalIdx] → UUID, filled in category order
+  const idByIndex: string[] = []
+  type Batch = { items: typeof rows; offset: number; label: string }
+  const batches: Batch[] = []
 
-  const systemPrompt = `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
-
-Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
-
-Rules:
-- Match items that OCH would choose ONE vendor to supply (competing products for the same use)
-- A clean common name is short, professional, readable: "Shredded Mozzarella", not "MOZZ SHRD WM 6/5LB BLKHD"
-- If only one vendor carries something, it still gets its own group (with one rowId)
-- Every single index in the input MUST appear in exactly one group — do not skip any
-- rowIds in output are the INTEGER INDICES from the input (not UUIDs)
-- Vendors in this upload: ${vendorList}`
-
-  // Split into alphabetically-ordered chunks so similar items from different vendors
-  // (which sort nearby) appear in the same chunk and get matched.
-  const chunks: typeof rows[] = []
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    chunks.push(rows.slice(i, i + CHUNK_SIZE))
+  for (const [cat, catRows] of Object.entries(byCategory)) {
+    for (let i = 0; i < catRows.length; i += MAX_ITEMS_PER_CALL) {
+      const chunk = catRows.slice(i, i + MAX_ITEMS_PER_CALL)
+      const offset = idByIndex.length
+      chunk.forEach(r => idByIndex.push(r.id))
+      const partLabel = catRows.length > MAX_ITEMS_PER_CALL
+        ? `${cat} part ${Math.floor(i / MAX_ITEMS_PER_CALL) + 1}`
+        : cat
+      batches.push({ items: chunk, offset, label: partLabel })
+    }
   }
 
-  type RawGroup = { commonName: string; rowIds: (string | number)[] }
+  const systemPrompt = `You are comparing food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ (OCH).
 
-  // Process all chunks in parallel
-  const chunkGroupsArray = await Promise.all(
-    chunks.map(async (chunk, chunkIdx) => {
-      const offset = chunkIdx * CHUNK_SIZE
-      const itemsText = chunk
+Your job: group items that refer to the SAME product across vendors so OCH can compare prices side by side.
+
+MATCHING RULES (apply in this priority order):
+1. BRAND MATCH — if two items share the same brand name, they are almost certainly the same product and must be grouped. Key brands: Galbani, Sorrento, Cooper, Icelandic, Martin's/Martins, Costanzo, Tyson, Cabot, BelGioioso, Arrezzio, Portico, Brakebush, Frank's, Barilla, Seaboard, Ore-Ida, Cavendish, McCain.
+2. PACK FORMAT + PRODUCT — same pack config (e.g. "6/5LB", "4/1GAL", "36/1LB", "40/4OZ") AND same product type = strong match even with different brands.
+3. SPEC MATCH — same size/grade spec (e.g. "10-12oz fillet", "U/10 dry scallops") + same product = match.
+
+Additional rules:
+- Only group items OCH would choose ONE vendor to supply (true competing alternatives)
+- Do NOT group items with meaningfully different specs (10-12oz ≠ 8-10oz fillet; U/10 ≠ 20/30 scallop)
+- Every single index in the input MUST appear in exactly one group — never skip any
+- Single-vendor items still get their own group (one rowId); omit matchReason for those
+- For matched groups (2+ vendors): always provide both confidence and matchReason
+- commonName: short, professional, readable — include key specs e.g. "Shredded Whole Milk Mozzarella 6/5LB" not "MOZZ SHRD WM 6/5LB BLKHD"
+- rowIds are INTEGER INDICES from the input (not UUIDs)
+- Vendors in this upload: ${vendorList}`
+
+  type RawGroup = {
+    commonName: string
+    confidence?: 'high' | 'medium' | 'low'
+    matchReason?: string
+    rowIds: (string | number)[]
+  }
+
+  // ── Process all batches in parallel ────────────────────────────────────────
+  const batchGroupsArray = await Promise.all(
+    batches.map(async ({ items, offset, label }) => {
+      const itemsText = items
         .map((r, localIdx) => {
           const globalIdx = offset + localIdx
           const v = rowById[r.id]
-          const vendor = v.vendorName.slice(0, 12)
+          const vendor = v.vendorName.slice(0, 14)
           const parts = [`${globalIdx}`, `[${vendor}]`, `"${v.itemName}"`]
           if (v.unitSize) parts.push(v.unitSize)
+          if (v.price) parts.push(`$${v.price.toFixed(2)}`)
           return parts.join(' | ')
         })
         .join('\n')
 
       const fallback = (): RawGroup[] =>
-        chunk.map((r, localIdx) => ({
+        items.map((r, localIdx) => ({
           commonName: rowById[r.id]?.itemName ?? '—',
           rowIds: [offset + localIdx],
         }))
 
-      let chunkResp
+      let resp
       try {
-        chunkResp = await client.messages.create({
-          model: 'claude-haiku-4-5-20251001',
+        resp = await client.messages.create({
+          model: 'claude-sonnet-4-6',
           max_tokens: 8000,
           system: systemPrompt,
           tools: [GROUP_TOOL],
           tool_choice: { type: 'tool', name: 'group_vendor_items' },
           messages: [{
             role: 'user',
-            content: `Group these ${chunk.length} items (chunk ${chunkIdx + 1}/${chunks.length}):\n\n${itemsText}`,
+            content: `Compare and group these ${items.length} items (${label}):\n\n${itemsText}`,
           }],
         })
       } catch (err) {
-        console.error(`[ai-match] Chunk ${chunkIdx + 1} API error:`, err instanceof Error ? err.message : err)
+        console.error(`[ai-match] Batch "${label}" API error:`, err instanceof Error ? err.message : err)
         return fallback()
       }
 
-      if (chunkResp.stop_reason === 'max_tokens') {
-        console.error(`[ai-match] Chunk ${chunkIdx + 1} truncated`)
+      if (resp.stop_reason === 'max_tokens') {
+        console.error(`[ai-match] Batch "${label}" truncated`)
         return fallback()
       }
 
-      const toolUse = chunkResp.content.find(b => b.type === 'tool_use') as
+      const toolUse = resp.content.find(b => b.type === 'tool_use') as
         | { type: 'tool_use'; input: { groups: RawGroup[] } }
         | undefined
 
       if (!toolUse?.input?.groups || !Array.isArray(toolUse.input.groups)) {
-        console.error(`[ai-match] Chunk ${chunkIdx + 1} malformed:`, JSON.stringify(chunkResp.content).slice(0, 500))
+        console.error(`[ai-match] Batch "${label}" malformed:`, JSON.stringify(resp.content).slice(0, 300))
         return fallback()
       }
 
-      console.log(`[ai-match] Chunk ${chunkIdx + 1}/${chunks.length}: ${toolUse.input.groups.length} groups from ${chunk.length} items`)
+      console.log(`[ai-match] "${label}": ${toolUse.input.groups.length} groups from ${items.length} items`)
       return toolUse.input.groups
     })
   )
 
-  const rawGroups = chunkGroupsArray.flat()
+  const rawGroups = batchGroupsArray.flat()
 
-  // Claude returns integer indices; map back to real UUIDs then look up vendor items
+  // ── Resolve integer indices → UUIDs → vendor items ─────────────────────────
   const resolvedGroups = rawGroups
     .map(g => {
       const vendorItems = g.rowIds
@@ -206,13 +305,13 @@ Rules:
           return rowById[uuid]
         })
         .filter(Boolean)
-      return { commonName: g.commonName, vendorItems }
+      return { commonName: g.commonName, confidence: g.confidence, matchReason: g.matchReason, vendorItems }
     })
     .filter(g => g.vendorItems.length > 0)
 
-  // Deduplicate: the AI sometimes puts two items from the SAME vendor in one group.
-  // When that happens, keep the first item in the group and spin the extras out as
-  // their own single-vendor groups (so no items are lost and the display is correct).
+  // ── Deduplicate same-vendor items within a group ────────────────────────────
+  // If AI puts two items from the same vendor in one group, keep the first and
+  // spin extras into single-vendor groups so the display stays correct.
   const groups: MatchGroup[] = []
   for (const g of resolvedGroups) {
     const seenVendors = new Set<string>()
@@ -226,12 +325,26 @@ Rules:
         spill.push(vi)
       }
     }
-    groups.push({ commonName: g.commonName, isMatched: keep.length > 1, vendorItems: keep })
+    const isMatched = keep.length > 1
+    groups.push({
+      commonName: g.commonName,
+      isMatched,
+      confidence: isMatched ? g.confidence : undefined,
+      matchReason: isMatched ? g.matchReason : undefined,
+      vendorItems: keep,
+    })
     spill.forEach(vi => groups.push({ commonName: vi.itemName, isMatched: false, vendorItems: [vi] }))
   }
 
+  // Sort: matched first (high confidence → medium → low), then alphabetical
+  const confOrder = { high: 0, medium: 1, low: 2 }
   groups.sort((a, b) => {
     if (a.isMatched !== b.isMatched) return a.isMatched ? -1 : 1
+    if (a.isMatched) {
+      const ca = confOrder[a.confidence ?? 'low']
+      const cb = confOrder[b.confidence ?? 'low']
+      if (ca !== cb) return ca - cb
+    }
     return a.commonName.localeCompare(b.commonName)
   })
 

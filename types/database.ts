@@ -112,6 +112,8 @@ export interface MatchVendorItem {
 export interface MatchGroup {
   commonName: string
   isMatched: boolean        // true = 2+ vendors carry this item
+  confidence?: 'high' | 'medium' | 'low'
+  matchReason?: string
   vendorItems: MatchVendorItem[]
 }
 

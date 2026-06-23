@@ -75,8 +75,9 @@ export default function ViewComparison({ rows, vendors, selectedWeek, matchGroup
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState<Mode>('all')
 
-  // AI match search
+  // AI match search + filter
   const [aiSearch, setAiSearch] = useState('')
+  const [aiFilter, setAiFilter] = useState<'all' | 'matched' | 'savings'>('all')
 
   async function runAIMatch() {
     setMatching(true)
@@ -124,7 +125,9 @@ export default function ViewComparison({ rows, vendors, selectedWeek, matchGroup
       groups={matchGroups}
       vendors={vendors}
       search={aiSearch}
+      filter={aiFilter}
       onSearchChange={setAiSearch}
+      onFilterChange={setAiFilter}
       onRerun={runAIMatch}
       onClear={onClearMatch}
       onAddToCart={onAddToCart}
@@ -205,7 +208,9 @@ function AIMatchView({
   groups,
   vendors,
   search,
+  filter,
   onSearchChange,
+  onFilterChange,
   onRerun,
   onClear,
   onAddToCart,
@@ -213,19 +218,30 @@ function AIMatchView({
   groups: MatchGroup[]
   vendors: VendorSummary[]
   search: string
+  filter: 'all' | 'matched' | 'savings'
   onSearchChange: (v: string) => void
+  onFilterChange: (f: 'all' | 'matched' | 'savings') => void
   onRerun: () => void
   onClear: () => void
   onAddToCart: (item: CartItem) => void
 }) {
   const filtered = useMemo(() => {
-    if (!search) return groups
-    const q = search.toLowerCase()
-    return groups.filter(g =>
-      g.commonName.toLowerCase().includes(q) ||
-      g.vendorItems.some(v => v.itemName.toLowerCase().includes(q))
-    )
-  }, [groups, search])
+    let result = groups
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter(g =>
+        g.commonName.toLowerCase().includes(q) ||
+        g.vendorItems.some(v => v.itemName.toLowerCase().includes(q))
+      )
+    }
+    if (filter === 'matched') {
+      result = result.filter(g => g.isMatched)
+    } else if (filter === 'savings') {
+      result = result.filter(g => g.isMatched)
+      // Will sort by case savings descending after rendering — flag is enough for filter
+    }
+    return result
+  }, [groups, search, filter])
 
   const matched = groups.filter(g => g.isMatched).length
   const total   = groups.length
@@ -247,7 +263,7 @@ function AIMatchView({
     <div style={{ padding: '0.25rem 0 2rem' }}>
 
       {/* Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem' }}>
         <input
           type="text"
           placeholder="Search items…"
@@ -261,6 +277,34 @@ function AIMatchView({
         <button onClick={onClear} style={{ background: 'transparent', border: `1px solid ${C.borderMid}`, color: C.textMuted, borderRadius: 8, padding: '7px 14px', fontFamily: 'var(--font-sans)', fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           ✕ Clear
         </button>
+      </div>
+
+      {/* Filter chips */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        {(['all', 'matched', 'savings'] as const).map(f => {
+          const labels = { all: 'All items', matched: 'Matched only', savings: 'Best savings' }
+          const active = filter === f
+          return (
+            <button
+              key={f}
+              onClick={() => onFilterChange(f)}
+              style={{
+                background: active ? C.primary : C.surface,
+                color: active ? '#fff' : C.textMid,
+                border: `1px solid ${active ? C.primary : C.borderMid}`,
+                borderRadius: 20,
+                padding: '5px 14px',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '0.72rem',
+                fontWeight: active ? 600 : 400,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {labels[f]}
+            </button>
+          )
+        })}
       </div>
 
       {/* Stat cards */}
@@ -291,6 +335,12 @@ function AIMatchView({
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ width: 3, height: 16, borderRadius: 2, background: C.matchedLeft, display: 'inline-block' }} />
           Matched across vendors
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '0.58rem', fontWeight: 600, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: 4, padding: '1px 5px' }}>HIGH</span>
+          <span style={{ fontSize: '0.58rem', fontWeight: 600, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 4, padding: '1px 5px' }}>MEDIUM</span>
+          <span style={{ fontSize: '0.58rem', fontWeight: 600, background: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px' }}>LOW</span>
+          Match confidence
         </div>
       </div>
 
@@ -360,13 +410,38 @@ function AIMatchView({
                 >
                   {/* Item name column */}
                   <td style={{ ...TD, borderRight: `1px solid ${C.border}`, borderLeft: group.isMatched ? `3px solid ${C.matchedLeft}` : `3px solid transparent` }}>
-                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.9rem', color: C.dark, fontWeight: 700 }}>
-                      {group.commonName}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.9rem', color: C.dark, fontWeight: 700 }}>
+                        {group.commonName}
+                      </span>
+                      {group.isMatched && group.confidence && (
+                        <span style={{
+                          display: 'inline-block',
+                          fontSize: '0.58rem',
+                          fontFamily: 'var(--font-sans)',
+                          fontWeight: 600,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          borderRadius: 4,
+                          padding: '2px 6px',
+                          marginTop: 2,
+                          background: group.confidence === 'high' ? '#d1fae5' : group.confidence === 'medium' ? '#fef3c7' : '#f1f5f9',
+                          color: group.confidence === 'high' ? '#065f46' : group.confidence === 'medium' ? '#92400e' : '#64748b',
+                          border: `1px solid ${group.confidence === 'high' ? '#6ee7b7' : group.confidence === 'medium' ? '#fcd34d' : '#cbd5e1'}`,
+                        }}>
+                          {group.confidence}
+                        </span>
+                      )}
+                    </div>
+                    {group.isMatched && group.matchReason && (
+                      <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.67rem', color: C.primaryDim, marginTop: 3, fontStyle: 'italic' }}>
+                        {group.matchReason}
+                      </div>
+                    )}
                     {group.isMatched && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem', marginTop: 3 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem', marginTop: 4 }}>
                         {group.vendorItems.map(vi => (
-                          <span key={vi.vendorId} style={{ fontFamily: 'var(--font-sans)', fontSize: '0.68rem', color: C.textMuted }}>
+                          <span key={vi.vendorId} style={{ fontFamily: 'var(--font-sans)', fontSize: '0.65rem', color: C.textMuted }}>
                             {vi.vendorName}: {vi.itemName}
                           </span>
                         ))}
@@ -464,22 +539,37 @@ function AIMatchView({
 
                   {/* Best save */}
                   <td style={{ ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {mixedUnits ? (
-                      <span style={{ fontFamily: 'var(--font-sans)', fontSize: '0.68rem', color: C.textMuted }}>units differ</span>
-                    ) : saving > 0 ? (
-                      <div>
-                        <span style={{ color: '#059669', fontWeight: 600 }}>
-                          ${saving.toFixed(2)}{labels[0] === '$/lb' ? '/lb' : '/ct'}
-                        </span>
-                        {maxNorm && (
-                          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.62rem', color: C.textMuted, marginTop: 2 }}>
-                            {((saving / maxNorm) * 100).toFixed(0)}% cheaper
+                    {(() => {
+                      // Case-price savings (always available when 2+ vendors present)
+                      const casePrices = group.vendorItems.map(vi => vi.price).filter(p => p > 0)
+                      const minCase = casePrices.length > 1 ? Math.min(...casePrices) : null
+                      const maxCase = casePrices.length > 1 ? Math.max(...casePrices) : null
+                      const caseSaving = minCase !== null && maxCase !== null ? maxCase - minCase : 0
+
+                      if (!group.isMatched || caseSaving <= 0) {
+                        return <span style={{ color: C.borderMid }}>—</span>
+                      }
+                      return (
+                        <div>
+                          <span style={{ color: '#059669', fontWeight: 700, fontSize: '0.88rem' }}>
+                            ${caseSaving.toFixed(2)}
+                          </span>
+                          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.6rem', color: C.textMuted, marginTop: 1 }}>
+                            /case
                           </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span style={{ color: C.borderMid }}>—</span>
-                    )}
+                          {maxCase && (
+                            <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.6rem', color: '#059669', marginTop: 1 }}>
+                              {((caseSaving / maxCase) * 100).toFixed(0)}% cheaper
+                            </div>
+                          )}
+                          {saving > 0 && canCompare && (
+                            <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.58rem', color: C.textMuted, marginTop: 2 }}>
+                              ${saving.toFixed(2)}{labels[0] === '$/lb' ? '/lb' : '/ct'}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                 </tr>
               )
