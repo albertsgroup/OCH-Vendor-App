@@ -124,7 +124,7 @@ async function handleAIMatch(req: NextRequest) {
   try {
     response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 6000,
+      max_tokens: 16000,
       system: `You are grouping food and beverage supply items from multiple vendor order guides for a restaurant called Old City Hall BBQ.
 
 Your job: group items that refer to the SAME product (even if named differently) into one group with a clean common name.
@@ -157,9 +157,14 @@ Rules:
     return NextResponse.json({ error: 'AI did not return groups' }, { status: 500 })
   }
 
+  if (response.stop_reason === 'max_tokens') {
+    console.error('[ai-match] Response truncated — output exceeded max_tokens')
+    return NextResponse.json({ error: `AI response was truncated (${rows.length} items may be too many for one pass). Try again or reduce the number of vendors.` }, { status: 500 })
+  }
+
   const rawGroups = toolUse.input?.groups
   if (!rawGroups || !Array.isArray(rawGroups)) {
-    console.error('[ai-match] Malformed tool input:', JSON.stringify(toolUse.input))
+    console.error('[ai-match] Malformed tool input:', JSON.stringify(toolUse.input).slice(0, 1000))
     return NextResponse.json({
       error: 'AI returned malformed groups',
       debug: { stopReason: response.stop_reason, inputKeys: Object.keys(toolUse.input ?? {}), inputSample: JSON.stringify(toolUse.input).slice(0, 500) },
