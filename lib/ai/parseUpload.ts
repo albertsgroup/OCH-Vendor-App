@@ -81,6 +81,22 @@ async function extractRawRows(
   const firstData = all.findIndex(r => r.some(c => String(c).trim()))
   if (firstData === -1) return { headers: [], rows: [], type: ext }
 
+  // Detect Sysco row-typed format: rows start with H (file header), F (field names),
+  // C (category headings), P (product rows). Standard files never have this pattern.
+  const firstColSample = all.slice(firstData, firstData + 6).map(r => String(r[0] ?? '').trim().toUpperCase())
+  if (firstColSample.includes('H') && firstColSample.includes('F')) {
+    const fRowIdx = all.findIndex(r => String(r[0] ?? '').trim().toUpperCase() === 'F')
+    if (fRowIdx >= 0) {
+      // Strip the single-letter type indicator from every row
+      const headers = all[fRowIdx].slice(1).map(c => String(c ?? '').trim())
+      const dataRows = all
+        .filter(r => String(r[0] ?? '').trim().toUpperCase() === 'P')
+        .map(r => r.slice(1).map(c => String(c ?? '').trim()))
+      console.log(`[parseUpload] Detected Sysco row-typed format — ${dataRows.length} product rows, headers from F row`)
+      return { headers, rows: dataRows, type: ext }
+    }
+  }
+
   const headers = all[firstData].map(c => String(c ?? '').trim())
   const dataRows = all.slice(firstData + 1)
     .filter(r => r.some(c => String(c).trim()))
@@ -99,6 +115,7 @@ interface ColumnIndices {
   pack: number        // -1 if absent (separate pack-count column)
   packSize: number    // -1 if absent (separate size-per-pack column)
   packUnit: number    // -1 if absent (separate unit column)
+  perLb: number       // -1 if absent; "Y" means price is $/lb already, not a case total
 }
 
 const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
@@ -212,6 +229,12 @@ Column meanings:
     return partial
   }
 
+  // Detect "Per Lb" / "Per Unit" flag column without asking the AI — it's a vendor-specific
+  // marker (used by Sysco) indicating that the price is already $/lb, not a case total.
+  const perLbIdx = headerLower.findIndex(h =>
+    h === 'per lb' || h === 'per_lb' || h === 'perlb' || h === 'per unit' || h === 'per_unit'
+  )
+
   const indices: ColumnIndices = {
     itemNumber: findIndex(result.item_number_col),
     itemName:   findIndex(result.item_name_col),
@@ -220,6 +243,7 @@ Column meanings:
     pack:       findIndex(result.pack_col),
     packSize:   findIndex(result.pack_size_col),
     packUnit:   findIndex(result.pack_unit_col),
+    perLb:      perLbIdx,
   }
 
   if (indices.itemName < 0 || indices.price < 0) {
@@ -279,18 +303,28 @@ function parseRowsLocally(
 
     const vendorItemNumber = indices.itemNumber >= 0 ? (row[indices.itemNumber] ?? '').trim() || null : null
 
-    // Build unit_size: prefer combined column; fall back to assembling from separate pack/size/unit columns
-    let unitSize = indices.unitSize >= 0 ? (row[indices.unitSize] ?? '').trim() || null : null
-    if (!unitSize && (indices.pack >= 0 || indices.packSize >= 0)) {
-      const packVal     = indices.pack     >= 0 ? (row[indices.pack]     ?? '').trim() : ''
-      const packSizeVal = indices.packSize >= 0 ? (row[indices.packSize] ?? '').trim() : ''
-      const packUnitVal = indices.packUnit >= 0 ? (row[indices.packUnit] ?? '').trim() : ''
-      if (packVal && packSizeVal && packUnitVal) {
-        unitSize = `${packVal}/${packSizeVal}${packUnitVal}`
-      } else if (packVal && packSizeVal) {
-        unitSize = `${packVal}/${packSizeVal}`
-      } else if (packVal) {
-        unitSize = `${packVal} CT`
+    // When "Per Lb" column = "Y", the price is already $/lb (variable-weight market pricing).
+    // Store as "1LB" so breakdownPrice correctly returns price/1 = $/lb without double-dividing.
+    const isPricePerLb = indices.perLb >= 0 &&
+      (row[indices.perLb] ?? '').trim().toUpperCase() === 'Y'
+
+    let unitSize: string | null
+    if (isPricePerLb) {
+      unitSize = '1LB'
+    } else {
+      // Build unit_size: prefer combined column; fall back to assembling from separate pack/size/unit columns
+      unitSize = indices.unitSize >= 0 ? (row[indices.unitSize] ?? '').trim() || null : null
+      if (!unitSize && (indices.pack >= 0 || indices.packSize >= 0)) {
+        const packVal     = indices.pack     >= 0 ? (row[indices.pack]     ?? '').trim() : ''
+        const packSizeVal = indices.packSize >= 0 ? (row[indices.packSize] ?? '').trim() : ''
+        const packUnitVal = indices.packUnit >= 0 ? (row[indices.packUnit] ?? '').trim() : ''
+        if (packVal && packSizeVal && packUnitVal) {
+          unitSize = `${packVal}/${packSizeVal}${packUnitVal}`
+        } else if (packVal && packSizeVal) {
+          unitSize = `${packVal}/${packSizeVal}`
+        } else if (packVal) {
+          unitSize = `${packVal} CT`
+        }
       }
     }
 
