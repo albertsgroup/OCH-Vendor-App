@@ -107,42 +107,76 @@ export function normalizePrice(price: number, unitSize: string | null | undefine
 
 /**
  * Extracts a pack/unit-size prefix embedded in vendor item descriptions.
- * Many vendors (US Foods, Curtze) lead descriptions with pack info instead of
+ * Many vendors (US Foods, Curtze, JFS) lead descriptions with pack info instead of
  * using a separate column.
  *
  * Examples:
  *   "4/5# 120 SLICE SWISS AMERICAN CHEESE"  → "4/5LB"
  *   "6/5LB SHREDDED CHEDDAR"                → "6/5LB"
- *   "12/32OZ HEAVY CREAM"                   → "12/32OZ"
- *   "4/1GAL WHOLE MILK"                     → "4/1GAL"
- *   "36/1LB UNSALTED BUTTER"                → "36/1LB"
- *   "5LB GROUND BEEF"                       → "5LB"
- *   "100CT GLOVES"                          → "100CT"
- *   "SWISS AMERICAN CHEESE"                 → null (no pack prefix)
+ *   "12/7 OZ AMERICAN CHEESE SLICES"        → "12/7OZ"
+ *   "4/1 GAL WHOLE MILK"                    → "4/1GAL"
+ *   "60/CS MOZZARELLA STRING CHEESE"        → "60CT"
+ *   "16/QTS BUTTERMILK"                     → "16QT"
+ *   "CS.10# HADDOCK FILLET"                 → "10LB"
+ *   "PKG 5# DRY SCALLOPS"                   → "5LB"
+ *   "BOX* 34# PORK BABY BACK RIBS"          → "34LB"
+ *   "BOX USDA PRIME BEEF BRISKET 17# 5/CS"  → "17LB"
+ *   "2/9-10# TURKEY BREAST"                 → "2/9LB"
+ *   "SWISS AMERICAN CHEESE"                 → null (no pack info)
  */
 export function extractUnitSizeFromName(name: string | null | undefined): string | null {
   if (!name) return null
-  const s = name.trim().toUpperCase()
+  const raw = name.trim().toUpperCase()
 
-  // Units ordered longest-first to prevent prefix matches (e.g. LBS before LB)
-  const UNITS = 'LBS|LB|GAL|OZ|KG|QT|ML|CT|PCS|PC|EACH|EA|COUNT|#'
+  // Strip common leading tokens that are not pack info:
+  //   "CS.10# ..."  → "10# ..."
+  //   "CS 40# ..."  → "40# ..."
+  //   "PKG 5# ..."  → "5# ..."
+  //   "BOX* 34# ..."→ "34# ..."
+  //   "BOX 17# ..." → "17# ..."
+  const s = raw
+    .replace(/^CS[.\s]+/, '')
+    .replace(/^PKG[.\s]+/, '')
+    .replace(/^BOX\*?\s+/, '')
 
-  // Multi-pack: QTY/SIZE UNIT  e.g. "4/5LB", "4/5#", "12/32OZ", "4/1GAL"
-  const mp = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*\\/\\s*(\\d+(?:\\.\\d+)?)\\s*(${UNITS})\\b`))
+  // Units ordered longest-first so alternation doesn't cut short (e.g. LBS before LB, QTS before QT)
+  const UNITS = 'LBS|LB|GAL|QTS|QT|OZ|KG|ML|CT|PCS|PC|EACH|EA|COUNT|#'
+
+  // Use (?=\s|$|[^A-Z0-9]) instead of \b so # (non-word char) terminates correctly
+  const END  = '(?=[\\s]|$|[^A-Z0-9])'
+
+  function normaliseUnit(u: string): string {
+    if (u === '#' || u === 'LBS') return 'LB'
+    if (u === 'QTS') return 'QT'
+    return u
+  }
+
+  // ── Multi-pack: QTY/SIZE[-RANGE] UNIT  e.g. "4/5LB", "4/5#", "12/7 OZ", "2/9-10#" ──
+  const mp = s.match(new RegExp(
+    `^(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:\\.\\d+)?)(?:-\\d+(?:\\.\\d+)?)?\\s*(${UNITS})${END}`
+  ))
   if (mp) {
-    const qty  = mp[1]
-    const size = mp[2]
-    const unit = (mp[3] === '#' || mp[3] === 'LBS') ? 'LB' : mp[3]
-    return `${qty}/${size}${unit}`
+    return `${mp[1]}/${mp[2]}${normaliseUnit(mp[3])}`
   }
 
-  // Single weight/count at start: "5LB BUTTER", "16OZ SOUR CREAM", "100CT GLOVES"
-  const sp = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${UNITS})\\b`))
-  if (sp) {
-    const size = sp[1]
-    const unit = (sp[2] === '#' || sp[2] === 'LBS') ? 'LB' : sp[2]
-    return `${size}${unit}`
-  }
+  // ── Count-per-case: QTY/CS  e.g. "60/CS MOZZARELLA" → "60CT" ──
+  const cs = s.match(/^(\d+)\s*\/\s*CS(?:\s|$)/)
+  if (cs) return `${cs[1]}CT`
+
+  // ── COUNT/UNIT (no size number): "16/QTS" → "16/1QT", "12/GAL" → "12/1GAL" ──
+  const cu = s.match(new RegExp(`^(\\d+)\\s*/\\s*(${UNITS})${END}`))
+  if (cu) return `${cu[1]}/1${normaliseUnit(cu[2])}`
+
+  // ── Single weight/count at start: "15#", "5LB", "16QTS", "100CT" ──
+  const sp = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${UNITS})${END}`))
+  if (sp) return `${sp[1]}${normaliseUnit(sp[2])}`
+
+  // ── Fallback: scan string for weight anywhere (covers "BOX BEEF 17# 5/CS") ──
+  // Only match when the number is preceded by a space/start to avoid "item #644" false-positives
+  const aw = raw.match(new RegExp(
+    `(?:^|\\s)(\\d+(?:\\.\\d+)?)\\s*(LBS|LB|#|OZ|KG)${END}`
+  ))
+  if (aw) return `${aw[1]}${normaliseUnit(aw[2])}`
 
   return null
 }
