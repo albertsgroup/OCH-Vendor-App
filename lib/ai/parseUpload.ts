@@ -45,7 +45,7 @@ export interface ParseFailure {
 async function extractRawRows(
   buffer: ArrayBuffer,
   filename: string
-): Promise<{ headers: string[]; rows: string[][]; type: string }> {
+): Promise<{ allRows: string[][]; firstNonEmptyIdx: number; type: string } | { headers: string[]; rows: string[][]; type: string }> {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
 
   if (ext === 'pdf') {
@@ -79,16 +79,15 @@ async function extractRawRows(
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const all: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][]
 
-  const firstData = all.findIndex(r => r.some(c => String(c).trim()))
-  if (firstData === -1) return { headers: [], rows: [], type: ext }
+  const firstNonEmptyIdx = all.findIndex(r => r.some(c => String(c).trim()))
+  if (firstNonEmptyIdx === -1) return { headers: [], rows: [], type: ext }
 
   // Detect Sysco row-typed format: rows start with H (file header), F (field names),
   // C (category headings), P (product rows). Standard files never have this pattern.
-  const firstColSample = all.slice(firstData, firstData + 6).map(r => String(r[0] ?? '').trim().toUpperCase())
+  const firstColSample = all.slice(firstNonEmptyIdx, firstNonEmptyIdx + 6).map(r => String(r[0] ?? '').trim().toUpperCase())
   if (firstColSample.includes('H') && firstColSample.includes('F')) {
     const fRowIdx = all.findIndex(r => String(r[0] ?? '').trim().toUpperCase() === 'F')
     if (fRowIdx >= 0) {
-      // Strip the single-letter type indicator from every row
       const headers = all[fRowIdx].slice(1).map(c => String(c ?? '').trim())
       const dataRows = all
         .filter(r => String(r[0] ?? '').trim().toUpperCase() === 'P')
@@ -98,12 +97,9 @@ async function extractRawRows(
     }
   }
 
-  const headers = all[firstData].map(c => String(c ?? '').trim())
-  const dataRows = all.slice(firstData + 1)
-    .filter(r => r.some(c => String(c).trim()))
-    .map(r => r.map(c => String(c ?? '').trim()))
-
-  return { headers, rows: dataRows, type: ext }
+  // Return raw rows — let AI identify which row is the actual header
+  const cleanAll = all.map(r => r.map(c => String(c ?? '').trim()))
+  return { allRows: cleanAll, firstNonEmptyIdx, type: ext }
 }
 
 // ── Column detection (1 Haiku call, CSV/Excel only) ───────────────────────
@@ -130,6 +126,10 @@ const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
         description: 'Set only if there is no identifiable price column or the file is unreadable. Leave empty for normal files.',
       },
       fatal_suggestions: { type: 'array', items: { type: 'string' } },
+      header_row: {
+        type: 'integer',
+        description: 'Zero-based index (relative to the rows shown) of the row that contains the actual column headers. Usually 0 but may be higher if the file has metadata rows (company name, date, etc.) before the column headers.',
+      },
       item_number_col: {
         type: 'string',
         description: 'Exact header text for the vendor SKU/item number column. Empty string if absent.',
@@ -163,25 +163,37 @@ const DETECT_COLUMNS_TOOL: Anthropic.Tool = {
   },
 }
 
+// Strip non-standard whitespace and normalize for comparison
+function normalizeHeader(s: string): string {
+  return s
+    .replace(/[ ​‌‍﻿­]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
 async function detectColumnIndices(
-  headers: string[],
-  sampleRows: string[][],
+  allRows: string[][],        // all rows from file starting at first non-empty row
   filename: string,
   fileType: string,
   client: Anthropic
-): Promise<{ indices: ColumnIndices; columnMapping: Record<string, string> } | { error: string; suggestions: string[] }> {
+): Promise<{ indices: ColumnIndices; columnMapping: Record<string, string>; headers: string[]; dataRows: string[][] } | { error: string; suggestions: string[] }> {
+
+  // Send up to 15 rows so AI can see any metadata rows before the actual header
+  const sampleRows = allRows.slice(0, 15)
+  const rowLines = sampleRows.map((r, i) => `[Row ${i}]: ${r.join('\t')}`)
 
   const sampleText = [
-    `Headers: ${headers.join('\t')}`,
-    '',
-    'Sample rows:',
-    ...sampleRows.slice(0, 8).map((r, i) => `Row ${i + 1}: ${r.join('\t')}`),
+    'FILE ROWS (row 0 = first non-empty row):',
+    ...rowLines,
   ].join('\n')
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 500,
+    max_tokens: 600,
     system: `You identify columns in vendor order guide spreadsheets for a restaurant.
+
+IMPORTANT: Some XLS/XLSX files have 1-3 metadata rows at the top (vendor name, date, "Order Guide" title, etc.) BEFORE the actual column header row. Identify which row is the actual header row using the header_row field.
 
 Some vendors (like Sysco, US Foods) use SEPARATE columns for pack count, pack size, and unit instead of a single combined unit-size column. Detect both patterns.
 
@@ -217,22 +229,26 @@ Column meanings:
     }
   }
 
-  // Map column names back to indices (case-insensitive, partial match as fallback)
-  const headerLower = headers.map(h => h.toLowerCase().trim())
+  // Use the AI-identified header row index (default 0)
+  const headerRowIdx = typeof result.header_row === 'number' ? Math.max(0, result.header_row) : 0
+  const headers = (allRows[headerRowIdx] ?? allRows[0]).map(c => normalizeHeader(c))
+  const dataRows = allRows
+    .slice(headerRowIdx + 1)
+    .filter(r => r.some(c => c.trim()))
 
+  // Map column names back to indices (normalized, with partial match fallback)
   function findIndex(colName: unknown): number {
     if (!colName || typeof colName !== 'string' || !colName.trim()) return -1
-    const name = colName.trim().toLowerCase()
-    const exact = headerLower.indexOf(name)
+    const name = normalizeHeader(colName)
+    const exact = headers.indexOf(name)
     if (exact >= 0) return exact
     // Partial match fallback
-    const partial = headerLower.findIndex(h => h.includes(name) || name.includes(h))
+    const partial = headers.findIndex(h => h.includes(name) || name.includes(h))
     return partial
   }
 
-  // Detect "Per Lb" / "Per Unit" flag column without asking the AI — it's a vendor-specific
-  // marker (used by Sysco) indicating that the price is already $/lb, not a case total.
-  const perLbIdx = headerLower.findIndex(h =>
+  // Detect "Per Lb" / "Per Unit" flag column (Sysco-specific)
+  const perLbIdx = headers.findIndex(h =>
     h === 'per lb' || h === 'per_lb' || h === 'perlb' || h === 'per unit' || h === 'per_unit'
   )
 
@@ -268,8 +284,8 @@ Column meanings:
     price:       String(result.price_col ?? ''),
   }
 
-  console.log('[parseUpload] Column mapping detected:', columnMapping)
-  return { indices, columnMapping }
+  console.log(`[parseUpload] header_row=${headerRowIdx}, column mapping:`, columnMapping)
+  return { indices, columnMapping, headers, dataRows }
 }
 
 // ── Local row parser (no AI, fast) ────────────────────────────────────────
@@ -502,15 +518,25 @@ export async function parseUploadWithAI(
   filename: string
 ): Promise<ParseResult | ParseFailure> {
 
-  let headers: string[]
-  let dataRows: string[][]
-  let fileType: string
+  let extractedType: string
+  let pdfRows: string[][] | null = null
+  let xlsAllRows: string[][] | null = null
+  let legacyHeaders: string[] | null = null
+  let legacyDataRows: string[][] | null = null
 
   try {
     const extracted = await extractRawRows(buffer, filename)
-    headers = extracted.headers
-    dataRows = extracted.rows
-    fileType = extracted.type
+    extractedType = extracted.type
+    if ('allRows' in extracted) {
+      // New path: raw rows returned for AI to identify header row
+      const startIdx = extracted.firstNonEmptyIdx
+      xlsAllRows = extracted.allRows.slice(startIdx)
+    } else if ('rows' in extracted && 'headers' in extracted) {
+      // Legacy path: pre-split (Sysco format or PDF)
+      legacyHeaders = extracted.headers
+      legacyDataRows = extracted.rows
+      pdfRows = extracted.type === 'pdf' ? extracted.rows : null
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Could not read this file.'
     console.error('[parseUpload] File extraction failed:', msg)
@@ -525,7 +551,8 @@ export async function parseUploadWithAI(
     }
   }
 
-  if (dataRows.length === 0) {
+  const hasRows = (xlsAllRows?.length ?? 0) > 0 || (pdfRows?.length ?? 0) > 0 || (legacyDataRows?.length ?? 0) > 0
+  if (!hasRows) {
     return {
       success: false,
       error: 'The file appears to be empty or has no readable rows.',
@@ -546,15 +573,16 @@ export async function parseUploadWithAI(
   }
 
   const client = new Anthropic({ apiKey })
+  const fileType = extractedType
 
-  console.log(`[parseUpload] File: "${filename}" | Type: ${fileType} | Rows: ${dataRows.length}`)
+  console.log(`[parseUpload] File: "${filename}" | Type: ${fileType}`)
 
   // ── PDF path: parallel AI chunks ──────────────────────────────────────
 
-  if (fileType === 'pdf') {
+  if (fileType === 'pdf' && pdfRows) {
     const chunks: string[][][] = []
-    for (let i = 0; i < dataRows.length; i += PDF_CHUNK_SIZE) {
-      chunks.push(dataRows.slice(i, i + PDF_CHUNK_SIZE))
+    for (let i = 0; i < pdfRows.length; i += PDF_CHUNK_SIZE) {
+      chunks.push(pdfRows.slice(i, i + PDF_CHUNK_SIZE))
     }
 
     console.log(`[parseUpload] PDF: ${chunks.length} chunks (parallel)`)
@@ -573,11 +601,11 @@ export async function parseUploadWithAI(
       }
     }
 
-    const allRows = chunkResults.flatMap(r => r.rows)
+    const allParsedRows = chunkResults.flatMap(r => r.rows)
     const allErrors = chunkResults.flatMap(r => r.errors)
     const columnMapping = chunkResults[0]?.columnMapping ?? {}
 
-    if (allRows.length === 0) {
+    if (allParsedRows.length === 0) {
       return {
         success: false,
         error: 'No valid priced items were found in this PDF.',
@@ -588,13 +616,16 @@ export async function parseUploadWithAI(
       }
     }
 
-    console.log(`[parseUpload] PDF done. Total rows: ${allRows.length}`)
-    return { success: true, rows: allRows, parse_errors: allErrors, column_mapping: columnMapping }
+    console.log(`[parseUpload] PDF done. Total rows: ${allParsedRows.length}`)
+    return { success: true, rows: allParsedRows, parse_errors: allErrors, column_mapping: columnMapping }
   }
 
   // ── CSV/Excel path: 1 AI call to detect columns, then parse locally ───
 
-  const mappingResult = await detectColumnIndices(headers, dataRows, filename, fileType, client)
+  // Use pre-split legacy rows (Sysco format) or the raw allRows path
+  const rowsForDetection = xlsAllRows ?? (legacyDataRows ? [legacyHeaders ?? [], ...legacyDataRows] : [])
+
+  const mappingResult = await detectColumnIndices(rowsForDetection, filename, fileType, client)
 
   if ('error' in mappingResult) {
     return {
@@ -604,7 +635,7 @@ export async function parseUploadWithAI(
     }
   }
 
-  const { indices, columnMapping } = mappingResult
+  const { indices, columnMapping, dataRows } = mappingResult
   const { parsed, errors } = parseRowsLocally(dataRows, indices)
 
   if (parsed.length === 0) {
