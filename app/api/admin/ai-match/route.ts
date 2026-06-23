@@ -195,11 +195,10 @@ Rules:
   const rawGroups = chunkGroupsArray.flat()
 
   // Claude returns integer indices; map back to real UUIDs then look up vendor items
-  const groups: MatchGroup[] = rawGroups
+  const resolvedGroups = rawGroups
     .map(g => {
       const vendorItems = g.rowIds
         .map(rawId => {
-          // Accept both numeric strings ("42") and already-correct UUIDs (fallback)
           const idx = Number(rawId)
           const uuid = (!isNaN(idx) && idx >= 0 && idx < idByIndex.length)
             ? idByIndex[idx]
@@ -207,18 +206,34 @@ Rules:
           return rowById[uuid]
         })
         .filter(Boolean)
-      return {
-        commonName: g.commonName,
-        isMatched: vendorItems.length > 1,
-        vendorItems,
-      }
+      return { commonName: g.commonName, vendorItems }
     })
     .filter(g => g.vendorItems.length > 0)
-    .sort((a, b) => {
-      // Matched items first, then alphabetical
-      if (a.isMatched !== b.isMatched) return a.isMatched ? -1 : 1
-      return a.commonName.localeCompare(b.commonName)
-    })
+
+  // Deduplicate: the AI sometimes puts two items from the SAME vendor in one group.
+  // When that happens, keep the first item in the group and spin the extras out as
+  // their own single-vendor groups (so no items are lost and the display is correct).
+  const groups: MatchGroup[] = []
+  for (const g of resolvedGroups) {
+    const seenVendors = new Set<string>()
+    const keep: typeof g.vendorItems = []
+    const spill: typeof g.vendorItems = []
+    for (const vi of g.vendorItems) {
+      if (!seenVendors.has(vi.vendorId)) {
+        seenVendors.add(vi.vendorId)
+        keep.push(vi)
+      } else {
+        spill.push(vi)
+      }
+    }
+    groups.push({ commonName: g.commonName, isMatched: keep.length > 1, vendorItems: keep })
+    spill.forEach(vi => groups.push({ commonName: vi.itemName, isMatched: false, vendorItems: [vi] }))
+  }
+
+  groups.sort((a, b) => {
+    if (a.isMatched !== b.isMatched) return a.isMatched ? -1 : 1
+    return a.commonName.localeCompare(b.commonName)
+  })
 
   return NextResponse.json({ groups })
 }
