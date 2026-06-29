@@ -398,10 +398,13 @@ function parseRowsLocally(
         const packVal     = indices.pack     >= 0 ? (row[indices.pack]     ?? '').trim() : ''
         const packSizeVal = indices.packSize >= 0 ? (row[indices.packSize] ?? '').trim() : ''
         const packUnitVal = indices.packUnit >= 0 ? (row[indices.packUnit] ?? '').trim() : ''
-        if (packVal && packSizeVal && packUnitVal) {
-          unitSize = `${packVal}/${packSizeVal}${packUnitVal}`
-        } else if (packVal && packSizeVal) {
-          unitSize = `${packVal}/${packSizeVal}`
+        if (packVal && packSizeVal) {
+          // Avoid doubling the unit when size already includes it (e.g. "5LB" + "LB" → "5LBLB")
+          const sizeAlreadyHasUnit = packUnitVal &&
+            packSizeVal.replace(/\s/g, '').toUpperCase().includes(packUnitVal.toUpperCase())
+          unitSize = sizeAlreadyHasUnit || !packUnitVal
+            ? `${packVal}/${packSizeVal}`
+            : `${packVal}/${packSizeVal}${packUnitVal}`
         } else if (packVal) {
           unitSize = `${packVal} CT`
         }

@@ -98,16 +98,31 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                       <th className="th w-32">Item #</th>
                       <th className="th">Item Name / Description</th>
                       <th className="th w-28 text-right">Case Price</th>
+                      <th className="th w-20 text-center">Pack/Case</th>
+                      <th className="th w-28 text-right">Size & Unit</th>
                       <th className="th w-32 text-right">Price / unit</th>
                       <th className="th w-16 text-center">Cart</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-light-grey-100">
                     {vendorRows.map(row => {
-                      // Use stored unit_size; fall back to extracting from item name for older rows
                       const effectiveUnitSize = row.unit_size || extractUnitSizeFromName(row.item_name)
                       const bd = breakdownPrice(row.price, effectiveUnitSize)
                       const inCart = cartRowIds.has(row.id)
+
+                      // Pack count: number of packs per case
+                      const packDisplay = bd?.packCount != null
+                        ? String(bd.packCount % 1 === 0 ? bd.packCount : bd.packCount.toFixed(1))
+                        : null
+
+                      // Size per pack (or total case size for single-unit items)
+                      const sizeDisplay = bd
+                        ? bd.packSize != null && bd.packSizeUnit
+                          ? `${bd.packSize % 1 === 0 ? bd.packSize : bd.packSize.toFixed(1)} ${bd.packSizeUnit}`
+                          : bd.unitLabel === '$/lb'
+                            ? `${bd.totalInCase % 1 === 0 ? bd.totalInCase : bd.totalInCase.toFixed(1)} lb`
+                            : `${bd.totalInCase} ct`
+                        : null
 
                       return (
                         <tr key={row.id} className="hover:bg-secondary-50">
@@ -115,39 +130,24 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                             {row.vendor_item_number ?? '—'}
                           </td>
                           <td className="td">
-                            <div>
-                              <p className="font-medium text-och-black">{row.item_name ?? '—'}</p>
-                              {effectiveUnitSize && (
-                                <p className="text-xs text-light-grey-400 mt-0.5">{effectiveUnitSize}</p>
-                              )}
-                            </div>
+                            <p className="font-medium text-och-black">{row.item_name ?? '—'}</p>
                           </td>
                           <td className="td text-right tabular-nums font-semibold text-och-black">
                             ${row.price.toFixed(2)}
                           </td>
+                          <td className="td text-center tabular-nums text-light-grey-600">
+                            {packDisplay ?? <span className="text-light-grey-300">—</span>}
+                          </td>
+                          <td className="td text-right tabular-nums text-light-grey-600">
+                            {sizeDisplay ?? <span className="text-light-grey-300">—</span>}
+                          </td>
                           <td className="td text-right tabular-nums">
                             {bd !== null ? (
-                              <div className="space-y-0.5">
-                                {/* Primary: $/lb or $/ct */}
-                                <div className="flex items-baseline justify-end gap-1">
-                                  <span className="text-primary font-semibold">${bd.perUnit.toFixed(2)}</span>
-                                  <span className={`text-[10px] font-semibold px-1 py-px rounded ${bd.unitLabel === '$/lb' ? 'bg-secondary-100 text-primary-300' : 'bg-amber-50 text-amber-700'}`}>
-                                    {bd.unitLabel}
-                                  </span>
-                                </div>
-                                {/* Secondary: $/pack breakdown (only when multi-pack) */}
-                                {bd.packCount !== null && bd.perPack !== null && bd.perPack !== bd.perUnit && (
-                                  <div className="text-xs text-light-grey-500 text-right">
-                                    ${bd.perPack.toFixed(2)}/pack
-                                    {bd.packSize && bd.packSizeUnit ? ` · ${bd.packSize % 1 === 0 ? bd.packSize : bd.packSize.toFixed(1)} ${bd.packSizeUnit} each` : ''}
-                                  </div>
-                                )}
-                                {/* Tertiary: case totals */}
-                                <div className="text-[11px] text-light-grey-300 text-right">
-                                  {bd.unitLabel === '$/lb'
-                                    ? `${bd.totalInCase % 1 === 0 ? bd.totalInCase : bd.totalInCase.toFixed(1)} lb case`
-                                    : `${bd.totalInCase} units/case`}
-                                </div>
+                              <div className="flex items-baseline justify-end gap-1">
+                                <span className="text-primary font-semibold">${bd.perUnit.toFixed(2)}</span>
+                                <span className={`text-[10px] font-semibold px-1 py-px rounded ${bd.unitLabel === '$/lb' ? 'bg-secondary-100 text-primary-300' : 'bg-amber-50 text-amber-700'}`}>
+                                  {bd.unitLabel}
+                                </span>
                               </div>
                             ) : (
                               <span className="text-light-grey-300">—</span>
@@ -190,7 +190,7 @@ export default function ViewGrouped({ rows, vendors, cartItems, onAddToCart }: P
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-light-grey-200 bg-secondary-50">
-                      <td colSpan={3} className="td text-xs text-light-grey-500 font-semibold">
+                      <td colSpan={5} className="td text-xs text-light-grey-500 font-semibold">
                         {vendor.vendor_name} — {vendorRows.length} items
                       </td>
                       <td className="td text-right font-bold font-heading text-primary tabular-nums">
