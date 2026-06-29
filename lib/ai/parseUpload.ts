@@ -688,6 +688,62 @@ export async function parseUploadWithAI(
 
   // ── CSV/Excel path: 1 AI call to detect columns, then parse locally ───
 
+  // Sysco fast-path: headers are known from the F-row — map directly without AI
+  // This avoids AI ambiguity (e.g., "Unit" column being misread as combined unit_size)
+  if (legacyHeaders && legacyDataRows && !pdfRows) {
+    const hl = legacyHeaders.map(h => normalizeHeader(h))
+    const findLegacyCol = (name: string) => {
+      const norm = normalizeHeader(name)
+      const exact = hl.indexOf(norm)
+      return exact >= 0 ? exact : hl.findIndex(h => h.includes(norm) || norm.includes(h))
+    }
+
+    const descIdx  = findLegacyCol('desc')
+    const priceIdx = findLegacyCol('case $')
+    const supcIdx  = findLegacyCol('supc')
+    const packIdx  = findLegacyCol('pack')
+    const sizeIdx  = findLegacyCol('size')
+    const unitIdx  = findLegacyCol('unit')
+    const perLbIdx = findLegacyCol('per lb')
+
+    if (descIdx >= 0 && priceIdx >= 0) {
+      const indices: ColumnIndices = {
+        itemNumber: supcIdx,
+        itemName:   descIdx,
+        unitSize:   -1,  // Sysco uses separate Pack/Size/Unit — never a combined column
+        price:      priceIdx,
+        pack:       packIdx,
+        packSize:   sizeIdx,
+        packUnit:   unitIdx,
+        perLb:      perLbIdx,
+      }
+      const columnMapping: Record<string, string> = {
+        item_number: supcIdx  >= 0 ? legacyHeaders[supcIdx]  : '',
+        item_name:   descIdx  >= 0 ? legacyHeaders[descIdx]  : '',
+        unit_size:   '',
+        pack:        packIdx  >= 0 ? legacyHeaders[packIdx]  : '',
+        pack_size:   sizeIdx  >= 0 ? legacyHeaders[sizeIdx]  : '',
+        pack_unit:   unitIdx  >= 0 ? legacyHeaders[unitIdx]  : '',
+        price:       priceIdx >= 0 ? legacyHeaders[priceIdx] : '',
+      }
+      console.log(`[parseUpload] Sysco fast-path mapping:`, columnMapping)
+      const { parsed, errors } = parseRowsLocally(legacyDataRows, indices)
+      if (parsed.length === 0) {
+        return {
+          success: false,
+          error: 'No valid priced items were found in this file.',
+          suggestions: [
+            `The price column was identified as "${columnMapping.price}" — make sure it contains numbers greater than $0.`,
+            'Remove any summary rows, totals, or category headings that don\'t represent individual items.',
+          ],
+        }
+      }
+      console.log(`[parseUpload] Sysco fast-path done. ${parsed.length} rows, ${errors.length} parse errors.`)
+      return { success: true, rows: parsed, parse_errors: errors, column_mapping: columnMapping }
+    }
+    // Fall through to AI detection if direct column mapping failed
+  }
+
   // Use pre-split legacy rows (Sysco format) or the raw allRows path
   const rowsForDetection = xlsAllRows ?? (legacyDataRows ? [legacyHeaders ?? [], ...legacyDataRows] : [])
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCurrentWeekStart, formatWeekRange } from '@/lib/utils/week'
 import UploadForm from '@/components/vendor/UploadForm'
+import { breakdownPrice, extractUnitSizeFromName } from '@/lib/utils/parseUnitSize'
 import type { VendorUpload, VendorUploadRow } from '@/types/database'
 
 type UploadWithRows = VendorUpload & { rows: VendorUploadRow[] }
@@ -126,21 +127,43 @@ export default function VendorDashboard() {
                 <tr className="border-b border-gray-200">
                   <th className="th w-32">Your Item #</th>
                   <th className="th">Description</th>
+                  <th className="th w-20 text-center">Pack/Case</th>
+                  <th className="th w-28 text-right">Size & Unit</th>
                   <th className="th w-28 text-right">Price</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {upload.rows.map(row => (
-                  <tr key={row.id} className="hover:bg-gray-50">
-                    <td className="td font-mono text-gray-500 text-xs">
-                      {row.vendor_item_number ?? '—'}
-                    </td>
-                    <td className="td font-medium">{row.item_name ?? '—'}</td>
-                    <td className="td text-right tabular-nums font-semibold text-gray-800">
-                      ${Number(row.price).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
+                {upload.rows.map(row => {
+                  const effectiveUnitSize = row.unit_size || extractUnitSizeFromName(row.item_name)
+                  const bd = breakdownPrice(Number(row.price), effectiveUnitSize)
+                  const packDisplay = bd?.packCount != null
+                    ? String(bd.packCount % 1 === 0 ? bd.packCount : bd.packCount.toFixed(1))
+                    : null
+                  const sizeDisplay = bd
+                    ? bd.packSize != null && bd.packSizeUnit
+                      ? `${bd.packSize % 1 === 0 ? bd.packSize : bd.packSize.toFixed(1)} ${bd.packSizeUnit}`
+                      : bd.unitLabel === '$/lb'
+                        ? `${bd.totalInCase % 1 === 0 ? bd.totalInCase : bd.totalInCase.toFixed(1)} lb`
+                        : `${bd.totalInCase} ct`
+                    : null
+                  return (
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="td font-mono text-gray-500 text-xs">
+                        {row.vendor_item_number ?? '—'}
+                      </td>
+                      <td className="td font-medium">{row.item_name ?? '—'}</td>
+                      <td className="td text-center tabular-nums text-gray-600">
+                        {packDisplay ?? <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="td text-right tabular-nums text-gray-600">
+                        {sizeDisplay ?? <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="td text-right tabular-nums font-semibold text-gray-800">
+                        ${Number(row.price).toFixed(2)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
